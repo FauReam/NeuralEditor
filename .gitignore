@@ -33,7 +33,11 @@ ENV/
 *.swo
 *~
 
-# Model weights (large binaries)
+# Model weights (large binaries) — entire model directories excluded
+models/Qwen2.5-7B-Instruct/
+models/bge-small-zh-v1.5/
+models/embedding/
+models/.cache/
 models/*.gguf
 models/*.bin
 models/*.safetensors
@@ -42,7 +46,7 @@ models/*.pth
 *.gguf
 *.bin
 *.safetensors
-# Sentence Transformers / BGE model weights (HuggingFace model store)
+# Sentence Transformers / BGE model weights
 .mdl
 .msc
 .mv
