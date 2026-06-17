@@ -104,6 +104,33 @@ class RomanceState:
         self.llm = None
         self.character_path = ""
         self.model_path = ""
+        self.session_id = ""
+        self.session_start = ""
+        self.consent = False
+        self.chat_log: list[dict] = []
+        self.choices_log: list[dict] = []
+
+    def init_session(self, consent: bool):
+        self.session_id = datetime.now().strftime("session_%Y%m%d_%H%M%S")
+        self.session_start = datetime.now().isoformat()
+        self.consent = consent
+        self.chat_log = []
+        self.choices_log = []
+
+    def log_message(self, role: str, content: str):
+        self.chat_log.append({
+            "role": role,
+            "content": content,
+            "time": datetime.now().isoformat(),
+        })
+
+    def log_choice(self, choice_id: str, text: str, delta: int):
+        self.choices_log.append({
+            "choice_id": choice_id,
+            "text": text,
+            "affection_delta": delta,
+            "time": datetime.now().isoformat(),
+        })
 
     def init_engine(self, character_path: str = "", model_path: str = ""):
         from src.core.character import Character
@@ -625,6 +652,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "消息为空"}, 400)
                 return
 
+            romance_state.log_message("user", msg)
             eng = romance_state.engine
             ctx = eng.process_player_input(msg)
 
@@ -639,6 +667,7 @@ class Handler(BaseHTTPRequestHandler):
                 response = f"*{eng.character.profile.name}微微一笑* 嗯，我在听呢..."
 
             eng.record_assistant_response(response)
+            romance_state.log_message("assistant", response)
 
             self._json({
                 "response": response,
@@ -667,6 +696,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": f"无效选择: {choice_id}"}, 400)
                 return
             romance_state.engine.apply_choice(chosen)
+            romance_state.log_choice(choice_id, chosen.text, chosen.affection_delta)
             self._json({
                 "ok": True,
                 "affection_delta": chosen.affection_delta,
@@ -701,6 +731,57 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "state": romance_state.to_dict()})
             else:
                 self._json({"error": f"存档不存在: {slot}"}, 404)
+
+        # ── Romance: session management ──
+        elif path == "/api/romance/session/start":
+            consent = body.get("consent", False)
+            romance_state.init_session(consent)
+            self._json({"ok": True, "session_id": romance_state.session_id, "consent": consent})
+
+        elif path == "/api/romance/session/save":
+            sid = romance_state.session_id
+            if not sid:
+                self._json({"error": "没有活跃会话"}, 400)
+                return
+            session_dir = Path("data/sessions")
+            session_dir.mkdir(parents=True, exist_ok=True)
+            session_data = {
+                "session_id": sid,
+                "start_time": romance_state.session_start,
+                "end_time": datetime.now().isoformat(),
+                "consent": romance_state.consent,
+                "character": romance_state.to_dict().get("character", {}),
+                "messages": romance_state.chat_log,
+                "choices": romance_state.choices_log,
+            }
+            (session_dir / f"{sid}.json").write_text(
+                json.dumps(session_data, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._json({"ok": True, "session_id": sid})
+
+        elif path == "/api/romance/session/feedback":
+            sid = body.get("session_id", romance_state.session_id)
+            if not sid:
+                self._json({"error": "没有活跃会话"}, 400)
+                return
+            rating = int(body.get("rating", 0))
+            feedback_text = body.get("feedback", "").strip()
+
+            fb_dir = Path("data/feedback")
+            fb_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save session data to feedback folder too (with rating)
+            fb_data = {
+                "session_id": sid,
+                "submitted_at": datetime.now().isoformat(),
+                "rating": rating,
+                "feedback": feedback_text,
+                "messages": romance_state.chat_log,
+                "choices": romance_state.choices_log,
+                "character": romance_state.to_dict().get("character", {}),
+            }
+            (fb_dir / f"{sid}.json").write_text(
+                json.dumps(fb_data, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._json({"ok": True, "message": "反馈已提交，感谢你的参与！"})
 
         else:
             self._json({"error": "not found"}, 404)

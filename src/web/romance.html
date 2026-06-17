@@ -9,7 +9,7 @@
 :root{
   --bg:#faf5f7;--surface:#fff;--surface2:#fef8fa;--border:#f0dce3;
   --text:#3d2c33;--dim:#9e8a92;--accent:#d4456a;--accent2:#e86582;
-  --green:#4caf84;--warn:#f0a040;--bar-bg:#f5e0e8;
+  --green:#4caf84;--warn:#f0a040;--bar-bg:#f5e0e8;--gold:#e8a840;
 }
 body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 .app{display:flex;height:100vh;overflow:hidden}
@@ -50,27 +50,49 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
 .chat-input-bar{padding:14px 22px;border-top:1px solid var(--border);background:var(--surface);display:flex;gap:8px}
 .chat-input-bar input{flex:1;padding:12px 18px;border:1.5px solid var(--border);border-radius:24px;font-size:.95em;outline:none;font-family:inherit;background:var(--bg)}
 .chat-input-bar input:focus{border-color:var(--accent)}
-.settings-btn{background:none;border:none;font-size:1.2em;cursor:pointer;padding:4px 8px;border-radius:6px;transition:all .2s}
+.settings-btn,.exit-btn{background:none;border:none;font-size:1em;cursor:pointer;padding:6px 12px;border-radius:6px;transition:all .2s;font-family:inherit;color:var(--dim)}
 .settings-btn:hover{background:var(--bg)}
+.exit-btn{color:var(--accent);border:1px solid var(--border);font-weight:600}
+.exit-btn:hover{background:#fff0f3;border-color:var(--accent)}
+
+/* Modals */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:1000;display:none}
 .modal-overlay.show{display:flex}
-.modal{background:var(--surface);border-radius:16px;padding:28px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto}
+.modal{background:var(--surface);border-radius:16px;padding:28px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.15)}
 .modal h2{font-size:1.15em;color:var(--accent);margin-bottom:16px}
+.modal p{font-size:.9em;line-height:1.6;margin-bottom:12px;color:var(--dim)}
 .modal .field{margin-bottom:12px}
-.modal .field label{display:block;font-size:.82em;color:var(--dim);margin-bottom:4px}
+.modal .field label{display:block;font-size:.82em;color:var(--dim);margin-bottom:4px;font-weight:600}
 .modal .field input,.modal .field select,.modal .field textarea{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:.9em;outline:none;font-family:inherit}
 .modal .field input:focus,.modal .field textarea:focus{border-color:var(--accent)}
+.modal .field textarea{resize:vertical;min-height:80px}
 .modal .btn-row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.modal .btn-row.space{justify-content:space-between}
 .tip{background:#fef8fa;border:1px solid #f0dce3;border-radius:8px;padding:10px 14px;font-size:.82em;color:var(--dim);margin-top:12px}
+.tip.gold{background:#fffdf5;border-color:#f5e0a8;color:#8a7030}
 .load-btn{font-size:.8em;padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text);font-family:inherit;margin:2px}
 .load-btn:hover{border-color:var(--accent)}
 .saves-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+
+/* Rating stars */
+.rating-row{display:flex;gap:8px;justify-content:center;margin:16px 0}
+.rating-star{font-size:2.2em;cursor:pointer;transition:all .15s;color:#ddd;user-select:none}
+.rating-star:hover{transform:scale(1.2)}
+.rating-star.active{color:var(--gold)}
+.rating-star.locked{color:var(--gold);cursor:default}
+.countdown{text-align:center;font-size:1.5em;font-weight:bold;color:var(--accent);margin:8px 0;font-variant-numeric:tabular-nums}
+.countdown.urgent{color:#e04040;animation:pulse .6s infinite}
+.consent-badge{display:inline-block;padding:2px 10px;border-radius:8px;font-size:.75em;margin-left:8px}
+.consent-badge.yes{background:#e8f5e9;color:var(--green)}
+.consent-badge.no{background:#f5f5f5;color:var(--dim)}
 .hidden{display:none!important}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 @media(max-width:700px){
   .app{flex-direction:column}
   .sidebar{width:100%;min-width:100%;max-height:45vh;border-right:none;border-bottom:1px solid var(--border)}
   .chat-msg{max-width:90%}
+  .rating-star{font-size:1.6em}
 }
 </style>
 </head>
@@ -80,7 +102,7 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
   <aside class="sidebar">
     <div class="sidebar-header">
       <h1>Heartscape</h1>
-      <div class="sub">本地 LLM 恋爱模拟</div>
+      <div class="sub">本地 LLM 恋爱模拟 <span class="consent-badge hidden" id="consent-badge"></span></div>
     </div>
     <div class="char-card" id="char-card">
       <div class="name" id="char-name">小棠</div>
@@ -118,9 +140,10 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
       <span class="title" id="chat-title">对话中</span>
       <div style="flex:1"></div>
       <button class="settings-btn" onclick="showSettings()" title="设置">⚙️</button>
+      <button class="exit-btn" onclick="handleExit()" title="退出">🚪 退出</button>
     </div>
     <div class="chat-main" id="chat-main">
-      <div class="chat-msg system">欢迎来到 Heartscape。点击右下角按钮开始新游戏，或加载存档。</div>
+      <div class="chat-msg system">欢迎来到 Heartscape。请先阅读并选择数据授权方式。</div>
     </div>
     <div class="chat-input-bar">
       <input id="chat-input" placeholder="输入你想说的话..." onkeydown="if(event.key==='Enter')sendMessage()" disabled>
@@ -129,7 +152,28 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
   </main>
 </div>
 
-<!-- Settings Modal -->
+<!-- ══════ CONSENT MODAL ══════ -->
+<div class="modal-overlay show" id="consent-modal">
+  <div class="modal" style="max-width:520px">
+    <h2>📋 数据使用授权</h2>
+    <p>欢迎使用 Heartscape。在开始之前，请了解：</p>
+    <p style="text-align:left;padding-left:20px">
+      你的互动对话数据<strong>始终会保存在本地</strong>。<br><br>
+      <strong>你是否同意管理员使用你的互动数据用于模型微调？</strong>
+    </p>
+    <div class="tip gold" style="font-size:.84em">
+      <strong>选择「同意」的用户：</strong>退出游戏时可参与评分和反馈。<br>
+      积极反馈将为你赢得 <strong>更多模型使用机会</strong> ✨
+    </div>
+    <div class="btn-row space" style="margin-top:18px">
+      <button onclick="setConsent(false)" style="padding:10px 24px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--dim);cursor:pointer;font-size:.9em;font-family:inherit">👤 不同意，直接开始</button>
+      <button onclick="setConsent(true)" style="padding:10px 24px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;font-size:.9em;font-family:inherit">✅ 同意并开始</button>
+    </div>
+    <p style="font-size:.78em;color:var(--dim);text-align:center;margin-top:14px">你随时可以在设置中查看此选项。无论选择如何，对话数据均安全存储。</p>
+  </div>
+</div>
+
+<!-- ══════ SETTINGS MODAL ══════ -->
 <div class="modal-overlay" id="settings-modal">
   <div class="modal">
     <h2>游戏设置</h2>
@@ -144,6 +188,7 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
       <input id="set-model-path" placeholder="如: models/Qwen2.5-7B-Instruct">
     </div>
     <div class="tip">不填模型路径则使用内置预设回复，适合快速体验剧情。</div>
+    <div class="tip" id="settings-consent-info" style="margin-top:8px"></div>
     <div class="btn-row">
       <button onclick="closeSettings()" class="load-btn">取消</button>
       <button onclick="applySettings()" style="padding:8px 20px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer">开始新游戏</button>
@@ -151,8 +196,60 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
   </div>
 </div>
 
+<!-- ══════ RATING MODAL (on exit) ══════ -->
+<div class="modal-overlay" id="rating-modal">
+  <div class="modal" style="max-width:460px;text-align:center">
+    <h2>⭐ 为本次体验打分</h2>
+    <p>请在倒计时结束前打分（1~10分）</p>
+    <div class="countdown" id="rating-countdown">00:20</div>
+    <div class="rating-row" id="star-row">
+      <span class="rating-star" data-score="1">☆</span>
+      <span class="rating-star" data-score="2">☆</span>
+      <span class="rating-star" data-score="3">☆</span>
+      <span class="rating-star" data-score="4">☆</span>
+      <span class="rating-star" data-score="5">☆</span>
+      <span class="rating-star" data-score="6">☆</span>
+      <span class="rating-star" data-score="7">☆</span>
+      <span class="rating-star" data-score="8">☆</span>
+      <span class="rating-star" data-score="9">☆</span>
+      <span class="rating-star" data-score="10">☆</span>
+    </div>
+    <p style="font-size:.82em;color:var(--dim)" id="rating-score-text">点击星星打分</p>
+    <div class="btn-row space">
+      <button onclick="skipRating()" style="padding:8px 18px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--dim);cursor:pointer;font-size:.85em;font-family:inherit">跳过</button>
+      <button onclick="submitRating()" id="btn-submit-rating" style="padding:8px 22px;border:none;border-radius:8px;background:var(--gold);color:#fff;font-weight:600;cursor:pointer;font-size:.85em;font-family:inherit;opacity:.5" disabled>提交评分</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ FEEDBACK MODAL (after rating) ══════ -->
+<div class="modal-overlay" id="feedback-modal">
+  <div class="modal" style="max-width:500px;text-align:center">
+    <h2>📝 改善建议</h2>
+    <p>感谢你的评分！可以用自然语言写下改善方向</p>
+    <div class="countdown" id="feedback-countdown">03:00</div>
+    <div class="field" style="text-align:left">
+      <textarea id="feedback-text" rows="4" placeholder="例如：希望角色回复更长一些、增加更多场景选择、对话风格可以更温柔..."></textarea>
+    </div>
+    <div class="tip gold" style="font-size:.82em;">
+      你的反馈将帮助我们改进模型。<strong>积极反馈的用户将优先获得新版本体验资格。</strong>
+    </div>
+    <div class="btn-row">
+      <button onclick="skipFeedback()" style="padding:8px 18px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--dim);cursor:pointer;font-size:.85em;font-family:inherit">跳过</button>
+      <button onclick="submitFeedback()" style="padding:8px 22px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;font-size:.85em;font-family:inherit">提交反馈</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let gameState = null;
+let userConsent = null;       // null=未选择, true=同意, false=不同意
+let sessionId = null;
+let ratingValue = 0;
+let ratingTimer = null;
+let feedbackTimer = null;
+
+function $(id) { return document.getElementById(id); }
 
 async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -174,12 +271,50 @@ function addMsg(role, text) {
   $('chat-main').scrollTop = $('chat-main').scrollHeight;
 }
 
-function $(id) { return document.getElementById(id); }
+// ══════════════ CONSENT ══════════════
+async function setConsent(agree) {
+  userConsent = agree;
+  localStorage.setItem('heartscape_consent', agree ? 'yes' : 'no');
+  $('consent-modal').classList.remove('show');
 
-// ══════════════ Settings ══════════════
+  const badge = $('consent-badge');
+  badge.classList.remove('hidden');
+  if (agree) {
+    badge.className = 'consent-badge yes';
+    badge.textContent = '已授权';
+  } else {
+    badge.className = 'consent-badge no';
+    badge.textContent = '未授权';
+  }
+
+  // Start session
+  const res = await api('POST', '/api/romance/session/start', { consent: agree });
+  sessionId = res.session_id;
+
+  if (agree) {
+    addMsg('system', '已授权数据用于模型微调。退出时可参与评分反馈，积极反馈将获得更多使用机会 ✨');
+  } else {
+    addMsg('system', '已选择不授权。你的数据仅保存在本地，不会用于微调。');
+  }
+
+  // Show settings
+  showSettings();
+}
+
+// ══════════════ SETTINGS ══════════════
 function showSettings() {
   $('settings-modal').classList.add('show');
+  const info = $('settings-consent-info');
+  if (userConsent === true) {
+    info.textContent = '当前状态：已授权数据使用。退出时可参与评分反馈。';
+    info.style.color = 'var(--green)';
+  } else if (userConsent === false) {
+    info.textContent = '当前状态：未授权数据使用。退出时无评分反馈。';
+  } else {
+    info.textContent = '请先在授权弹窗中做出选择。';
+  }
 }
+
 function closeSettings() {
   $('settings-modal').classList.remove('show');
 }
@@ -200,7 +335,7 @@ async function applySettings() {
   }
 }
 
-// ══════════════ Chat ══════════════
+// ══════════════ CHAT ══════════════
 async function sendMessage() {
   const input = $('chat-input');
   const msg = input.value.trim();
@@ -219,12 +354,12 @@ async function sendMessage() {
   }
   if (res.choices) updateChoices(res.choices);
   if (res.scene) {
-    $('scene-desc').textContent = gameState?.character?.name ? `${gameState.character.name}的日常` : '日常';
+    $('scene-desc').textContent = gameState?.character?.name ? `${gameState.character.name}附近` : '日常';
   }
   $('chat-main').scrollTop = $('chat-main').scrollHeight;
 }
 
-// ══════════════ Choices ══════════════
+// ══════════════ CHOICES ══════════════
 async function makeChoice(choiceId) {
   addMsg('system', '你做出了选择...');
   const res = await api('POST', '/api/romance/choice', { choice_id: choiceId });
@@ -242,7 +377,7 @@ async function makeChoice(choiceId) {
   }
 }
 
-// ══════════════ Save / Load ══════════════
+// ══════════════ SAVE / LOAD ══════════════
 async function saveGame() {
   const slot = $('save-slot').value.trim() || 'auto';
   const res = await api('POST', '/api/romance/save', { slot });
@@ -274,7 +409,7 @@ async function loadSaveList() {
   }
 }
 
-// ══════════════ UI update ══════════════
+// ══════════════ UI UPDATE ══════════════
 function updateUI(state) {
   gameState = state;
   updateCharacterUI(state.character);
@@ -310,11 +445,204 @@ function updateChoices(choices) {
   }
 }
 
-// ══════════════ Init ══════════════
-loadSaveList();
-$('settings-modal').classList.add('show'); // Show settings on first load
+// ══════════════ EXIT FLOW ══════════════
+async function handleExit() {
+  // Save session data first
+  await saveGame();
+  try { await api('POST', '/api/romance/session/save', {}); } catch(e) {}
 
-// Try restore from localStorage preference
+  if (userConsent === true) {
+    showRatingModal();
+  } else {
+    doFinalExit();
+  }
+}
+
+// ══════════════ RATING MODAL ══════════════
+let ratingSeconds = 0;
+
+function showRatingModal() {
+  ratingSeconds = 20;
+  ratingValue = 0;
+  $('rating-modal').classList.add('show');
+  $('rating-countdown').textContent = '00:20';
+  $('rating-countdown').classList.remove('urgent');
+  $('rating-score-text').textContent = '点击星星打分';
+  $('btn-submit-rating').disabled = true;
+  $('btn-submit-rating').style.opacity = '.5';
+
+  // Reset stars
+  document.querySelectorAll('.rating-star').forEach(s => {
+    s.classList.remove('active', 'locked');
+    s.textContent = '☆';
+  });
+
+  // Star click handlers
+  document.querySelectorAll('.rating-star').forEach(star => {
+    star.onclick = () => {
+      if (star.classList.contains('locked')) return;
+      ratingValue = parseInt(star.dataset.score);
+      $('rating-score-text').textContent = `已选: ${ratingValue} 分`;
+      $('btn-submit-rating').disabled = false;
+      $('btn-submit-rating').style.opacity = '1';
+      // Highlight stars
+      document.querySelectorAll('.rating-star').forEach(s => {
+        if (parseInt(s.dataset.score) <= ratingValue) {
+          s.classList.add('active');
+          s.textContent = '★';
+        } else {
+          s.classList.remove('active');
+          s.textContent = '☆';
+        }
+      });
+    };
+  });
+
+  startRatingCountdown();
+}
+
+function startRatingCountdown() {
+  if (ratingTimer) clearInterval(ratingTimer);
+  ratingTimer = setInterval(() => {
+    ratingSeconds--;
+    const m = Math.floor(ratingSeconds / 60);
+    const s = ratingSeconds % 60;
+    $('rating-countdown').textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    if (ratingSeconds <= 5) $('rating-countdown').classList.add('urgent');
+    if (ratingSeconds <= 0) {
+      clearInterval(ratingTimer);
+      ratingTimer = null;
+      $('rating-modal').classList.remove('show');
+      doFinalExit();
+    }
+  }, 1000);
+}
+
+function submitRating() {
+  if (ratingValue === 0) return;
+  clearInterval(ratingTimer);
+  ratingTimer = null;
+
+  // Lock stars
+  document.querySelectorAll('.rating-star').forEach(s => s.classList.add('locked'));
+
+  $('rating-modal').classList.remove('show');
+  // Submit rating to backend
+  api('POST', '/api/romance/session/feedback', {
+    session_id: sessionId,
+    rating: ratingValue,
+    feedback: '',
+  });
+  showFeedbackModal();
+}
+
+function skipRating() {
+  clearInterval(ratingTimer);
+  ratingTimer = null;
+  $('rating-modal').classList.remove('show');
+  doFinalExit();
+}
+
+// ══════════════ FEEDBACK MODAL ══════════════
+let feedbackSeconds = 0;
+
+function showFeedbackModal() {
+  feedbackSeconds = 180; // 3 minutes
+  $('feedback-modal').classList.add('show');
+  $('feedback-countdown').textContent = '03:00';
+  $('feedback-countdown').classList.remove('urgent');
+  $('feedback-text').value = '';
+  startFeedbackCountdown();
+}
+
+function startFeedbackCountdown() {
+  if (feedbackTimer) clearInterval(feedbackTimer);
+  feedbackTimer = setInterval(() => {
+    feedbackSeconds--;
+    const m = Math.floor(feedbackSeconds / 60);
+    const s = feedbackSeconds % 60;
+    $('feedback-countdown').textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    if (feedbackSeconds <= 10) $('feedback-countdown').classList.add('urgent');
+    if (feedbackSeconds <= 0) {
+      clearInterval(feedbackTimer);
+      feedbackTimer = null;
+      $('feedback-modal').classList.remove('show');
+      doFinalExit();
+    }
+  }, 1000);
+}
+
+async function submitFeedback() {
+  clearInterval(feedbackTimer);
+  feedbackTimer = null;
+  const text = $('feedback-text').value.trim();
+  $('feedback-modal').classList.remove('show');
+
+  if (text) {
+    await api('POST', '/api/romance/session/feedback', {
+      session_id: sessionId,
+      rating: ratingValue,
+      feedback: text,
+    });
+  }
+  doFinalExit();
+}
+
+function skipFeedback() {
+  clearInterval(feedbackTimer);
+  feedbackTimer = null;
+  $('feedback-modal').classList.remove('show');
+  doFinalExit();
+}
+
+// ══════════════ FINAL EXIT ══════════════
+function doFinalExit() {
+  addMsg('system', '感谢使用 Heartscape。你的互动数据已保存。再见~');
+  $('chat-input').disabled = true;
+  $('chat-input').placeholder = '游戏已结束';
+  // Clear all state
+  gameState = null;
+  sessionId = null;
+}
+
+// ══════════════ PAGE LEAVE ══════════════
+window.addEventListener('beforeunload', () => {
+  // Best-effort save on page close
+  if (sessionId) {
+    navigator.sendBeacon('/api/romance/session/save', JSON.stringify({}));
+  }
+});
+
+// ══════════════ INIT ══════════════
+loadSaveList();
+
+// Check stored consent
+const storedConsent = localStorage.getItem('heartscape_consent');
+if (storedConsent === 'yes') {
+  userConsent = true;
+  $('consent-modal').classList.remove('show');
+  const badge = $('consent-badge');
+  badge.classList.remove('hidden');
+  badge.className = 'consent-badge yes';
+  badge.textContent = '已授权';
+  api('POST', '/api/romance/session/start', { consent: true }).then(r => { sessionId = r.session_id; });
+  addMsg('system', '欢迎回来！你的互动数据将继续用于模型改进。');
+  // Show settings
+  setTimeout(() => showSettings(), 300);
+} else if (storedConsent === 'no') {
+  userConsent = false;
+  $('consent-modal').classList.remove('show');
+  const badge = $('consent-badge');
+  badge.classList.remove('hidden');
+  badge.className = 'consent-badge no';
+  badge.textContent = '未授权';
+  api('POST', '/api/romance/session/start', { consent: false }).then(r => { sessionId = r.session_id; });
+  addMsg('system', '欢迎回来！你的数据仅保存在本地。');
+  setTimeout(() => showSettings(), 300);
+}
+// else: consent modal already showing by default
+
+// Auto-restore save
 const lastSlot = localStorage.getItem('heartscape_last_slot');
 if (lastSlot) {
   $('save-slot').value = lastSlot;
@@ -322,11 +650,12 @@ if (lastSlot) {
     const res = await api('POST', '/api/romance/load', { slot: lastSlot });
     if (res.ok && res.state) {
       updateUI(res.state);
+      $('consent-modal').classList.remove('show');
       addMsg('system', `已自动恢复存档: ${lastSlot}`);
       $('chat-input').disabled = false;
       closeSettings();
     }
-  }, 200);
+  }, 400);
 }
 </script>
 </body>
