@@ -1,0 +1,50 @@
+scenes:
+  - scene_id: library_first_meet
+    description: "图书馆的下午，阳光透过窗户洒在书架上。"
+    prerequisites: []
+    choices:
+      - choice_id: greet_politely
+        text: "你好，请问这里有人吗？"
+        affection_delta: 5
+        next_scene: library_chat
+        unlocks: [library_chat]
+
+      - choice_id: ask_for_help
+        text: "我在找一本书，能请你帮忙吗？"
+        affection_delta: 8
+        next_scene: library_help
+        unlocks: [library_help]
+
+  - scene_id: library_chat
+    description: "她抬起头，有些惊讶地看着你。"
+    prerequisites: [library_chat]
+    choices:
+      - choice_id: ask_name
+        text: "你经常来这边看书吗？"
+        affection_delta: 3
+        next_scene: library_chat
+
+      - choice_id: compliment
+        text: "你认真的样子很迷人。"
+        affection_delta: 10
+        next_scene: library_blush
+        conditions: [library_chat]
+
+  - scene_id: library_blush
+    description: "她的脸微微泛红，低头继续翻书。"
+    prerequisites: [library_blush]
+    choices:
+      - choice_id: gentle_persistence
+        text: "啊，抱歉，我是不是说错话了？"
+        affection_delta: 5
+        next_scene: library_chat
+
+  - scene_id: library_help
+    description: "她接过书单，认真地看了起来。"
+    prerequisites: [library_help]
+    choices:
+      - choice_id: thank_her
+        text: "谢谢你，下次请你喝奶茶。"
+        affection_delta: 10
+        next_scene: library_chat
+        unlocks: [library_chat]

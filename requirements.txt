@@ -1,0 +1,22 @@
+# Core dependencies
+torch>=2.1.0
+transformers>=4.38.0
+accelerate>=0.27.0
+peft>=0.9.0
+bitsandbytes>=0.42.0
+sentence-transformers>=2.5.0
+chromadb>=0.4.0
+pyyaml>=6.0.1
+pydantic>=2.5.0
+rich>=13.7.0
+click>=8.1.0
+
+# Training (optional)
+trl>=0.8.0
+datasets>=2.16.0
+
+# Development (optional)
+pytest>=8.0.0
+black>=24.0.0
+ruff>=0.2.0
+mypy>=1.8.0

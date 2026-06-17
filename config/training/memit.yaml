@@ -1,0 +1,42 @@
+# MEMIT (Massive Editing in Transformer) configuration
+# Use for batch-updating multiple related facts simultaneously.
+# More stable than sequential ROME for related concepts.
+#
+# Usage:
+#   python scripts/editing/memit_edit.py --config config/training/memit.yaml
+
+model_name: "Qwen/Qwen2.5-7B-Instruct"
+model_path: "models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+
+# Batch of edits to apply simultaneously
+edits:
+  - subject: "牵手"
+    relation: "在恋爱中是一种"
+    target: "常见的亲密表达方式"
+    layer_idx: 15
+    lam: 5.0
+
+  - subject: "拥抱"
+    relation: "在亲密关系中是一种"
+    target: "温暖的安慰方式"
+    layer_idx: 15
+    lam: 5.0
+
+  - subject: "约会"
+    relation: "是"
+    target: "了解彼此的正常社交活动"
+    layer_idx: 15
+    lam: 5.0
+
+calibration_prompts:
+  - "今天天气不错，适合出去散步。"
+  - "我喜欢在图书馆看书，安静的环境让人放松。"
+  - "晚餐想吃什么？火锅还是日料。"
+  - "周末的计划还没确定，也许去爬山。"
+  - "最近在读一本小说，情节很吸引人。"
+  - "学习累了可以休息一下，喝杯咖啡。"
+  - "春天的樱花很漂亮，想去拍照。"
+
+restore_on_exit: false
+save_edit_log: true
+edit_log_path: "data/edits/memit_log.json"

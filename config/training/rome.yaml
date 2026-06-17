@@ -1,0 +1,33 @@
+# ROME (Rank-One Model Editing) configuration
+# Use for surgical single-fact updates without retraining.
+#
+# Usage:
+#   python scripts/editing/rome_edit.py --config config/training/rome.yaml
+
+model_name: "Qwen/Qwen2.5-7B-Instruct"
+model_path: "models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"  # or HF path
+
+edit:
+  subject: "牵手"                       # Concept to edit
+  relation: "在恋爱中是一种"            # Context (optional)
+  target: "常见的亲密表达方式"          # New association
+  layer_idx: 15                        # Mid-layer usually best (explore 10-25)
+  lam: 5.0                             # Covariance regularization
+                                        # Higher = more conservative, less change
+                                        # Lower = stronger edit, risk of side effects
+
+# Calibration prompts: diverse text to estimate key distribution.
+# These should be generic, unrelated to the edit target.
+calibration_prompts:
+  - "今天天气不错，适合出去散步。"
+  - "我喜欢在图书馆看书，安静的环境让人放松。"
+  - "晚餐想吃什么？火锅还是日料。"
+  - "周末的计划还没确定，也许去爬山。"
+  - "最近在读一本小说，情节很吸引人。"
+  - "学习累了可以休息一下，喝杯咖啡。"
+  - "春天的樱花很漂亮，想去拍照。"
+
+# Safety checks
+restore_on_exit: false                  # Keep edits persistent after script ends
+save_edit_log: true
+edit_log_path: "data/edits/rome_log.json"

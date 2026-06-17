@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>💕 Heartscape 恋爱模型微调指南 — 奶奶也能看懂</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #fdf6f0; color: #3a2a1a; line-height: 1.9; font-size: 20px; padding: 20px; max-width: 900px; margin: auto; }
+  h1 { text-align: center; font-size: 2.2em; color: #d4456a; margin: 30px 0 10px; }
+  h2 { font-size: 1.5em; color: #b8405e; margin: 35px 0 12px; border-left: 6px solid #f0a0b0; padding-left: 15px; }
+  h3 { font-size: 1.2em; color: #6b3a4a; margin: 20px 0 8px; }
+  .subtitle { text-align: center; color: #888; font-size: 1em; margin-bottom: 30px; }
+  .card { background: #fff; border-radius: 16px; padding: 25px 30px; margin: 18px 0; box-shadow: 0 3px 12px rgba(200,150,150,0.12); }
+  .card.important { border: 2px solid #f0a0b0; background: #fff5f7; }
+  .step { display: flex; align-items: flex-start; gap: 16px; margin: 20px 0; }
+  .step-num { flex-shrink: 0; width: 42px; height: 42px; border-radius: 50%; background: #d4456a; color: #fff; text-align: center; line-height: 42px; font-weight: bold; font-size: 1.3em; }
+  .step-text { flex: 1; padding-top: 6px; }
+  code { background: #f5e6ea; padding: 3px 8px; border-radius: 5px; font-size: 0.85em; font-family: "SF Mono", "Monaco", "Consolas", monospace; color: #b8405e; }
+  pre { background: #2d1f24; color: #f5d0d8; padding: 18px 22px; border-radius: 10px; overflow-x: auto; font-size: 0.8em; line-height: 1.6; margin: 12px 0; }
+  .path { background: #fffae6; border: 1px dashed #e0c060; padding: 6px 14px; border-radius: 6px; font-weight: bold; color: #8a6d20; display: inline-block; }
+  .tip { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 15px 0; }
+  .warn { background: #fff3e0; border-left: 4px solid #ff9800; padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 15px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+  th, td { border: 1px solid #f0d0d8; padding: 10px 14px; text-align: left; }
+  th { background: #faeef2; color: #b8405e; }
+  .file-box { background: #fdf6f0; border: 1px solid #e0c8d0; border-radius: 8px; padding: 14px 18px; margin: 10px 0; }
+  .file-box .filename { font-weight: bold; color: #d4456a; }
+  .file-box .desc { color: #777; font-size: 0.9em; }
+  .btn { display: inline-block; background: #d4456a; color: #fff; padding: 10px 28px; border-radius: 25px; text-decoration: none; font-weight: bold; font-size: 1.05em; transition: background 0.2s; }
+  .btn:hover { background: #b8405e; }
+  .faq q { font-weight: bold; color: #d4456a; }
+  .faq .answer { margin-left: 20px; color: #555; }
+  hr { border: none; border-top: 1px dashed #e0c8d0; margin: 25px 0; }
+  @media (max-width: 600px) { body { font-size: 17px; padding: 10px; } h1 { font-size: 1.6em; } .card { padding: 15px 18px; } }
+</style>
+</head>
+<body>
+
+<h1>💕 Heartscape 恋爱模型微调指南</h1>
+<p class="subtitle">—— 给奶奶看也能懂的 AI 模型训练说明书 ——</p>
+
+<!-- 快速导航 -->
+<div class="card important">
+  <h3>📌 三个步骤完成训练</h3>
+  <p style="font-size:1.1em">
+    ① 准备好 <span class="path">data/my_romance_data.jsonl</span> 训练数据<br>
+    ② 打开终端，输入一行命令开始训练<br>
+    ③ 等待 15-30 分钟，查看拟合报告
+  </p>
+</div>
+
+<!-- 第1步 -->
+<h2>第 1 步：认识你的文件</h2>
+<div class="card">
+  <p>这个项目里有两个重要的东西：</p>
+
+  <div class="file-box">
+    <div class="filename">📄 训练数据文件</div>
+    <div class="desc">位置：<span class="path">data/my_romance_data.jsonl</span></div>
+    <p style="margin-top:8px;">里面装了 20 条恋爱对话的"标准答案"。每条包含玩家说的话和小棠应该怎么回复。<br>
+    <strong>类比：</strong>就像给小棠买了一本《恋爱对话练习册》，里面每道题都有参考答案。</p>
+  </div>
+
+  <div class="file-box" style="margin-top:15px;">
+    <div class="filename">🖥️ 训练脚本</div>
+    <div class="desc">位置：<span class="path">scripts/alignment_tuner.py</span></div>
+    <p style="margin-top:8px;">这个脚本会"教"小棠学习恋爱对话。<br>
+    <strong>类比：</strong>就像一位老师，拿着练习册一道道教小棠怎么回答。</p>
+  </div>
+</div>
+
+<!-- 第2步 -->
+<h2>第 2 步：打开终端</h2>
+<div class="card">
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-text">
+      <strong>找到终端程序</strong><br>
+      Mac 电脑：按键盘上的 <code>Cmd + 空格</code>，输入"终端"，回车<br>
+      Windows 电脑：按 <code>Win 键</code>，输入 <code>cmd</code>，回车
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-text">
+      <strong>进入项目文件夹</strong><br>
+      在终端里输入（把 <code>/你的项目路径</code> 换成实际位置）：
+      <pre>cd /你的项目路径/heartscape-engine</pre>
+      <span style="font-size:0.85em; color:#888;">💡 如果不确定路径，可以把文件夹直接拖进终端窗口</span>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-text">
+      <strong>确认数据文件存在</strong><br>
+      在终端里输入：
+      <pre>ls data/my_romance_data.jsonl</pre>
+      如果显示文件路径，说明数据找得到。如果显示 "No such file"，检查文件是否在正确位置。
+    </div>
+  </div>
+</div>
+
+<!-- 第3步 -->
+<h2>第 3 步：开始训练！</h2>
+<div class="card">
+  <p>在终端里输入这一行命令，然后按回车：</p>
+  <pre>python scripts/alignment_tuner.py --data data/my_romance_data.jsonl --interactive</pre>
+
+  <div class="tip">
+    <strong>🔍 这条命令在说什么？</strong><br>
+    <code>--data</code> = 用哪个练习册（数据文件）<br>
+    <code>--interactive</code> = 训练完后可以和小棠对话测试
+  </div>
+
+  <p>你会看到屏幕上出现这些内容：</p>
+  <table>
+    <tr><th>屏幕上显示什么</th><th>什么意思</th></tr>
+    <tr><td>📋 阶段1: 训练前基线评估</td><td>先看看小棠"没学习"之前回答得怎么样</td></tr>
+    <tr><td>Step 0: loss=1.2345</td><td>第 0 步，错误率是 1.23（越大说明越不会）</td></tr>
+    <tr><td>Step 20: loss=0.8423</td><td>第 20 步，错误率降到 0.84（学得不错！）</td></tr>
+    <tr><td>Step 40: loss=0.5123</td><td>第 40 步，错误率继续下降（越来越好了）</td></tr>
+    <tr><td>📊 拟合程度评估报告</td><td>训练完成，显示"学习效果"成绩单</td></tr>
+    <tr><td>✅ 完成</td><td>全部搞定！</td></tr>
+  </table>
+
+  <div class="warn">
+    <strong>⚠️ 注意：</strong>训练需要 15-30 分钟，期间电脑风扇可能会转得快一些，这是正常的。<br>
+    不要关掉终端窗口，让它跑完。
+  </div>
+</div>
+
+<!-- 第4步 -->
+<h2>第 4 步：看懂成绩单</h2>
+<div class="card">
+  <p>训练结束后会显示一份"拟合报告"，长这样：</p>
+
+  <table>
+    <tr><th>指标</th><th>训练前</th><th>训练后</th><th>变化</th></tr>
+    <tr><td>语义相似度</td><td>0.350</td><td>0.780</td><td style="color:green;">↑ +0.430</td></tr>
+    <tr><td>Token重叠度</td><td>0.120</td><td>0.340</td><td style="color:green;">↑ +0.220</td></tr>
+    <tr><td>训练 Loss</td><td>—</td><td>0.5123</td><td style="color:green;">↓ 下降 58%</td></tr>
+  </table>
+
+  <div style="margin-top:15px;">
+    <strong>怎么看懂这些数字？</strong>
+    <ul style="margin:10px 0 0 20px;">
+      <li><strong>语义相似度</strong>：0 是完全不像，1 是一模一样。训练后从 0.35 涨到 0.78，说明小棠学会了一大半。</li>
+      <li><strong>Token重叠度</strong>：回答和标准答案用了多少相同的词。涨了就是进步。</li>
+      <li><strong>Loss</strong>：错误率。越小越好，下降 58% 说明学得很好。</li>
+    </ul>
+  </div>
+
+  <div class="tip">
+    <strong>✨ 什么样的结果是好的？</strong><br>
+    语义相似度 > 0.70 = 优秀（小棠学得很像）<br>
+    语义相似度 0.50-0.70 = 良好（还需要再练练）<br>
+    语义相似度 < 0.50 = 可以增加数据量再训练一次
+  </div>
+</div>
+
+<!-- 参数说明 -->
+<h2>🔧 高级：调整训练参数</h2>
+<div class="card">
+  <p>如果觉得训练效果不够好，可以调整这些参数。在命令后面加上就行：</p>
+
+  <table>
+    <tr><th>参数</th><th>默认值</th><th>调大效果</th><th>调小效果</th></tr>
+    <tr><td><code>--r</code></td><td>32</td><td>学得更细，但更慢</td><td>学得更快，但可能不够</td></tr>
+    <tr><td><code>--lr</code></td><td>5e-5</td><td>学得快，但可能"记错"</td><td>学得慢，但更稳</td></tr>
+    <tr><td><code>--epochs</code></td><td>5</td><td>反复多练几遍</td><td>少练几遍</td></tr>
+  </table>
+
+  <p>例如，想让小棠学得更"用功"：</p>
+  <pre>python scripts/alignment_tuner.py --data data/my_romance_data.jsonl --r 32 --lr 5e-5 --epochs 5 --interactive</pre>
+</div>
+
+<!-- FAQ -->
+<h2>❓ 常见问题</h2>
+<div class="card">
+  <div class="faq" style="margin-bottom:18px;">
+    <q>Q：训练到一半电脑卡住了怎么办？</q>
+    <div class="answer">A：不是卡住了，是在计算。耐心等，不要关窗口。如果超过 1 小时还没反应，可能是显存不够，尝试加 <code>--epochs 3</code> 减少训练量。</div>
+  </div>
+  <div class="faq" style="margin-bottom:18px;">
+    <q>Q：提示 "No module named transformers"？</q>
+    <div class="answer">A：还没安装依赖。在终端输入 <code>pip install -e ".[dev,train]"</code> 然后再试。</div>
+  </div>
+  <div class="faq" style="margin-bottom:18px;">
+    <q>Q：训练完的模型在哪里？</q>
+    <div class="answer">A：在 <span class="path">lora_alignment/</span> 文件夹里。里面有 <code>adapter_model.safetensors</code> 文件，这就是训练好的"小棠恋爱脑"。</div>
+  </div>
+  <div class="faq" style="margin-bottom:18px;">
+    <q>Q：我可以自己写训练数据吗？</q>
+    <div class="answer">A：当然！打开 <span class="path">data/my_romance_data.jsonl</span>，照葫芦画瓢添加新的对话。每一行是一个 JSON 对象，格式是：<br>
+    <code>{"text": "&lt;|im_start|&gt;user\n你说的...&lt;|im_end|&gt;\n&lt;|im_start|&gt;assistant\n小棠回...&lt;|im_end|&gt;"}</code></div>
+  </div>
+  <div class="faq">
+    <q>Q：能用网页操作吗？</q>
+    <div class="answer">A：可以！在终端输入 <code>python scripts/web_ui.py</code>，然后用浏览器打开 <code>http://localhost:8765</code>，就能在网页上点点点完成训练。</div>
+  </div>
+</div>
+
+<hr>
+<p style="text-align:center; color:#aaa; font-size:0.85em; padding:20px;">
+  💕 Heartscape Engine · 让小棠学会谈恋爱 · 奶奶友好版指南
+</p>
+
+</body>
+</html>

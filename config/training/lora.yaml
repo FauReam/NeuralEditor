@@ -1,0 +1,36 @@
+# LoRA training configuration for romance dialogue fine-tuning
+# Adjust values below and run: python scripts/train_lora.py --config config/training/lora.yaml
+
+model_name: "Qwen/Qwen2.5-7B-Instruct"
+output_dir: "lora_romance"
+dataset_path: "data/romance_chat_sample.jsonl"
+
+lora:
+  r: 32                 # LoRA rank (aggressive: 32 for stronger adaptation)
+  alpha: 64             # Scaling factor (usually 2*r)
+  dropout: 0.0          # Dropout for regularization (0 = none)
+  target_modules: "all-linear"  # All linear layers for maximum coverage
+  bias: "none"          # Bias training mode
+
+quantization:
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: "bfloat16"
+  bnb_4bit_use_double_quant: true      # Nested quantization for VRAM saving
+  bnb_4bit_quant_type: "nf4"           # Normalized float 4-bit
+
+training:
+  num_train_epochs: 5
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4        # Effective batch = 4
+  learning_rate: 5.0e-5                 # Higher LR for stronger effect
+  max_grad_norm: 0.3
+  warmup_ratio: 0.03
+  lr_scheduler_type: "cosine"
+  logging_steps: 10
+  save_strategy: "epoch"
+  bf16: true
+  group_by_length: false
+  optim: "paged_adamw_8bit"             # 8-bit optimizer for VRAM
+
+max_seq_length: 512
+early_stopping_patience: null           # Set to N for early stopping
