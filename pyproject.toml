@@ -50,6 +50,7 @@ train = [
 
 [project.scripts]
 heartscape = "src.main:cli"
+neuraleditor = "src.web.server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

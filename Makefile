@@ -1,4 +1,4 @@
-.PHONY: install test lint format clean run download-model train-lora
+.PHONY: install test lint format clean run download-model train-lora web
 
 install:
 	pip install -e ".[dev,train]"
@@ -33,3 +33,6 @@ run:
 
 run-dev:
 	python -m src.main --character config/characters/default.yaml
+
+web:
+	python -m src.web.server

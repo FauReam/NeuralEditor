@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeuralEditor — 模型微调器</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f0f14;--surface:#1a1a24;--surface2:#22222e;--border:#2a2a3a;
+  --text:#e0e0e0;--dim:#888;--accent:#a78bfa;--accent2:#c084fc;--danger:#f87171;
+  --green:#34d399;--orange:#fb923c;--pink:#f472b6;
+}
+body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:100}
+header h1{font-size:1.3em;background:linear-gradient(135deg,var(--accent),var(--pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+header nav{display:flex;gap:4px;margin-left:20px}
+header nav a{padding:8px 16px;border-radius:8px;color:var(--dim);text-decoration:none;font-size:.9em;transition:all .2s}
+header nav a.active,header nav a:hover{background:var(--surface2);color:var(--text)}
+header nav a.active{color:var(--accent)}
+main{max-width:1080px;margin:0 auto;padding:20px}
+.tab{display:none}
+.tab.active{display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:16px}
+.card h2{font-size:1.1em;color:var(--accent);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.card h2 .badge{font-size:.75em;padding:2px 10px;border-radius:10px;font-weight:normal}
+.badge.idle{background:#333;color:var(--dim)}
+.badge.running{background:rgba(251,146,60,.15);color:var(--orange)}
+.badge.done{background:rgba(52,211,153,.15);color:var(--green)}
+.badge.error{background:rgba(248,113,113,.15);color:var(--danger)}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:14px}
+.form-grid.wide{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:.8em;color:var(--dim);font-weight:600}
+.field input,.field select,.field textarea{width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.9em;outline:none;transition:border .2s;font-family:inherit}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent)}
+.field textarea{resize:vertical;min-height:60px}
+button{padding:9px 22px;border:none;border-radius:8px;font-size:.9em;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-primary:hover{opacity:.9;transform:translateY(-1px)}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover{border-color:var(--accent)}
+.btn-danger{background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.3)}
+.btn-danger:hover{background:rgba(248,113,113,.2)}
+.btn-sm{padding:6px 14px;font-size:.8em}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.progress-wrap{margin:12px 0}
+.progress-bar{height:32px;background:var(--surface2);border-radius:16px;overflow:hidden;position:relative}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--pink));border-radius:16px;transition:width .4s;display:flex;align-items:center;justify-content:center;font-size:.8em;font-weight:bold;color:#fff}
+.status-msg{font-size:.85em;color:var(--dim);margin:8px 0}
+.log-box{background:#0a0a10;padding:12px 16px;border-radius:10px;font-family:"SF Mono",monospace;font-size:.78em;line-height:1.7;max-height:200px;overflow-y:auto;border:1px solid var(--border)}
+.metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.metric{background:var(--surface2);border-radius:10px;padding:16px;text-align:center}
+.metric .val{font-size:1.5em;font-weight:bold;color:var(--accent)}
+.metric .lbl{font-size:.78em;color:var(--dim);margin:4px 0}
+.metric .delta{font-size:.85em;margin-top:4px}
+.delta.up{color:var(--green)}
+.delta.down{color:var(--danger)}
+.data-table{width:100%;border-collapse:collapse;font-size:.85em}
+.data-table th{text-align:left;padding:8px 12px;background:var(--surface2);color:var(--dim);font-weight:600}
+.data-table td{padding:8px 12px;border-bottom:1px solid var(--border);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.edit-row{display:flex;gap:8px;align-items:flex-end;margin-bottom:8px;flex-wrap:wrap}
+.edit-row .field{flex:1;min-width:100px}
+.chat-box{border:1px solid var(--border);border-radius:10px;padding:16px;min-height:120px;max-height:350px;overflow-y:auto;margin-bottom:10px;background:var(--bg)}
+.chat-msg{margin:8px 0;padding:9px 14px;border-radius:10px;max-width:85%;word-break:break-word}
+.chat-user{background:var(--accent);color:#fff;margin-left:auto;text-align:right;border-radius:12px 12px 0 12px}
+.chat-assistant{background:var(--surface2);border:1px solid var(--border);border-radius:12px 12px 12px 0}
+.chat-input-row{display:flex;gap:8px}
+.chat-input-row input{flex:1;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;color:var(--text);font-size:.9em;outline:none}
+.chat-input-row input:focus{border-color:var(--accent)}
+.info-tag{padding:3px 10px;border-radius:6px;font-size:.8em;display:inline-block}
+.info-tag.info{background:rgba(167,139,250,.15);color:var(--accent)}
+.info-tag.warn{background:rgba(251,146,60,.15);color:var(--orange)}
+.info-tag.good{background:rgba(52,211,153,.15);color:var(--green)}
+.flex-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.gap-lg{gap:16px}
+canvas{display:block;width:100%;max-height:250px}
+.hidden{display:none!important}
+@media(max-width:700px){
+  body{padding:0}
+  header{flex-wrap:wrap;padding:10px 14px}
+  header nav{gap:2px}
+  header nav a{padding:6px 10px;font-size:.8em}
+  main{padding:12px}
+  .form-grid{grid-template-columns:1fr}
+  .metric-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧠 NeuralEditor</h1>
+  <nav>
+    <a href="#" data-tab="data" class="active">📁 数据</a>
+    <a href="#" data-tab="lora">🪡 LoRA 微调</a>
+    <a href="#" data-tab="rome">🎯 ROME 编辑</a>
+    <a href="#" data-tab="memit">📋 MEMIT 批量</a>
+    <a href="#" data-tab="eval">📊 评估</a>
+    <a href="#" data-tab="test">💬 测试</a>
+  </nav>
+</header>
+
+<main>
+<!-- ═══════ DATA TAB ═══════ -->
+<div id="tab-data" class="tab active">
+  <div class="card">
+    <h2>📁 训练数据加载</h2>
+    <div class="flex-row gap-lg">
+      <div class="field" style="flex:1;min-width:250px">
+        <label>数据文件路径</label>
+        <select id="data-path">
+          <option value="data/my_romance_data.jsonl">data/my_romance_data.jsonl</option>
+          <option value="data/romance_chat_sample.jsonl">data/romance_chat_sample.jsonl</option>
+        </select>
+      </div>
+      <button class="btn-primary" onclick="loadData()" style="margin-top:18px">加载并验证</button>
+    </div>
+    <div id="data-info" class="flex-row" style="margin-top:10px"></div>
+    <div style="margin-top:12px;max-height:360px;overflow:auto">
+      <table class="data-table hidden" id="data-table">
+        <thead><tr><th>#</th><th>格式</th><th>Prompt</th><th>Target</th></tr></thead>
+        <tbody id="data-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ LORA TAB ═══════ -->
+<div id="tab-lora" class="tab">
+  <div class="card">
+    <h2>🪡 LoRA 微调配置</h2>
+    <div class="form-grid wide">
+      <div class="field">
+        <label>模型名称</label>
+        <input id="lora-model" value="Qwen/Qwen2.5-7B-Instruct">
+      </div>
+      <div class="field">
+        <label>Rank (r)</label>
+        <input id="lora-r" type="number" value="32" min="4" max="128">
+      </div>
+      <div class="field">
+        <label>Alpha</label>
+        <input id="lora-alpha" type="number" value="64" min="8" max="256">
+      </div>
+      <div class="field">
+        <label>学习率</label>
+        <input id="lora-lr" type="text" value="5e-5">
+      </div>
+      <div class="field">
+        <label>Epochs</label>
+        <input id="lora-epochs" type="number" value="5" min="1" max="20">
+      </div>
+      <div class="field">
+        <label>目标模块</label>
+        <select id="lora-target">
+          <option value="all-linear">all-linear（全部线性层）</option>
+          <option value="q_proj,v_proj">q_proj+v_proj（仅注意力）</option>
+          <option value="q_proj,k_proj,v_proj,o_proj">Q/K/V/O（完整注意力）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>输出目录</label>
+        <input id="lora-output" value="lora_web">
+      </div>
+    </div>
+    <button class="btn-primary" id="btn-train" onclick="startTraining()">🚀 开始训练</button>
+    <button class="btn-danger hidden" id="btn-cancel" onclick="cancelTraining()">⏹ 取消训练</button>
+  </div>
+
+  <div class="card">
+    <h2>📊 训练进度 <span class="badge idle" id="status-badge">就绪</span></h2>
+    <div class="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%">0%</div></div>
+    </div>
+    <p id="status-msg" class="status-msg">等待开始训练</p>
+    <div class="log-box" id="log-box">等待训练...</div>
+    <canvas id="loss-chart" class="hidden" height="200"></canvas>
+  </div>
+
+  <div class="card hidden" id="report-card">
+    <h2>📋 拟合报告</h2>
+    <div class="metric-grid">
+      <div class="metric">
+        <div class="lbl">语义相似度</div>
+        <div class="val" id="metric-semantic">—</div>
+        <div class="delta" id="delta-semantic"></div>
+      </div>
+      <div class="metric">
+        <div class="lbl">Token 重叠度</div>
+        <div class="val" id="metric-overlap">—</div>
+        <div class="delta" id="delta-overlap"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ ROME TAB ═══════ -->
+<div id="tab-rome" class="tab">
+  <div class="card">
+    <h2>🎯 ROME 单条事实编辑</h2>
+    <div class="form-grid">
+      <div class="field"><label>主题 (Subject)</label><input id="rome-subject" value="牵手" placeholder="如: 牵手"></div>
+      <div class="field"><label>关系 (Relation)</label><input id="rome-relation" value="在恋爱中是一种" placeholder="如: 在恋爱中是一种"></div>
+      <div class="field"><label>目标 (Target)</label><input id="rome-target" value="常见的亲密表达方式" placeholder="如: 常见的亲密表达方式"></div>
+      <div class="field"><label>层索引</label><input id="rome-layer" type="number" value="15" min="1" max="30"></div>
+      <div class="field"><label>Lambda</label><input id="rome-lam" type="number" value="5.0" step="0.5"></div>
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label>校准提示（一行一个）</label>
+      <textarea id="rome-calib" rows="3">今天天气真好
+我喜欢喝咖啡
+最近工作很忙</textarea>
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label>测试提示（一行一个，留空则自动生成）</label>
+      <textarea id="rome-tests" rows="2"></textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn-primary" onclick="applyRome()">应用 ROME 编辑</button>
+      <button class="btn-secondary btn-sm" onclick="loadBaseModel()">先加载模型</button>
+    </div>
+    <div id="rome-result" style="margin-top:12px"></div>
+  </div>
+  <div class="card">
+    <h2>📝 编辑历史</h2>
+    <div id="edit-history" class="log-box" style="max-height:300px">暂无编辑记录</div>
+  </div>
+</div>
+
+<!-- ═══════ MEMIT TAB ═══════ -->
+<div id="tab-memit" class="tab">
+  <div class="card">
+    <h2>📋 MEMIT 批量编辑</h2>
+    <div id="memit-rows"></div>
+    <div class="btn-row">
+      <button class="btn-secondary btn-sm" onclick="addMemitRow()">+ 添加一行</button>
+      <button class="btn-secondary btn-sm" onclick="addMemitPreset()">📥 加载预设</button>
+    </div>
+    <div class="field" style="margin-top:12px">
+      <label>校准提示</label>
+      <textarea id="memit-calib" rows="3">今天天气真好
+我喜欢喝咖啡
+最近工作很忙</textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn-primary" onclick="applyMemit()">应用 MEMIT 批量编辑</button>
+      <button class="btn-secondary btn-sm" onclick="loadBaseModel()">先加载模型</button>
+    </div>
+    <div id="memit-result" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- ═══════ EVAL TAB ═══════ -->
+<div id="tab-eval" class="tab">
+  <div class="card">
+    <h2>📊 评估已训练的模型</h2>
+    <p style="color:var(--dim);margin-bottom:12px">需要先完成 LoRA 训练或加载适配器</p>
+    <div class="btn-row">
+      <button class="btn-primary" onclick="runEval()">运行评估</button>
+      <button class="btn-secondary btn-sm" onclick="loadBaseModel()">重新加载基础模型</button>
+      <button class="btn-secondary btn-sm" onclick="loadLoraAdapter()">加载 LoRA 适配器</button>
+    </div>
+    <div id="eval-result" style="margin-top:14px"></div>
+  </div>
+</div>
+
+<!-- ═══════ TEST TAB ═══════ -->
+<div id="tab-test" class="tab">
+  <div class="card">
+    <h2>💬 模型对话测试</h2>
+    <div class="chat-box" id="test-chat-box">
+      <div class="chat-msg chat-assistant">模型就绪后可以在这里测试对话。先在 LoRA 标签页完成训练，或加载已有适配器。</div>
+    </div>
+    <div class="chat-input-row">
+      <input id="test-chat-input" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendTestChat()">
+      <button class="btn-primary" onclick="sendTestChat()">发送</button>
+    </div>
+  </div>
+</div>
+</main>
+
+<script>
+// ══════════════ Tab switching ══════════════
+document.querySelectorAll('header nav a').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('header nav a').forEach(x => x.classList.remove('active'));
+    a.classList.add('active');
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + a.dataset.tab).classList.add('active');
+    localStorage.setItem('neuraleditor_active_tab', a.dataset.tab);
+  });
+});
+const savedTab = localStorage.getItem('neuraleditor_active_tab');
+if (savedTab) document.querySelector(`header nav a[data-tab="${savedTab}"]`)?.click();
+
+// ══════════════ Persist form values ══════════════
+function persist(prefix, fields) {
+  fields.forEach(id => {
+    const el = document.getElementById(prefix + id);
+    if (el) {
+      el.addEventListener('change', () => localStorage.setItem('ne_' + prefix + id, el.value));
+      const saved = localStorage.getItem('ne_' + prefix + id);
+      if (saved !== null) el.value = saved;
+    }
+  });
+}
+persist('lora-', ['model','r','alpha','lr','epochs','target','output']);
+persist('rome-', ['subject','relation','target','layer','lam']);
+persist('data-', ['path']);
+
+let pollTimer = null;
+
+function $(id) { return document.getElementById(id); }
+
+function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(path, opts).then(r => r.json());
+}
+
+// ══════════════ DATA ══════════════
+async function loadData() {
+  const path = $('data-path').value;
+  const res = await api('POST', '/api/tuner/data/load', { path });
+  $('data-info').innerHTML = res.ok
+    ? `<span class="info-tag good">${res.message}</span>`
+    : `<span class="info-tag warn">${res.message}</span>`;
+  if (res.ok) {
+    const prev = await api('GET', '/api/tuner/data/preview?n=20');
+    const tbody = $('data-tbody');
+    tbody.innerHTML = prev.samples.map((s, i) => {
+      let u = '', a = '';
+      if (s.messages) { u = s.messages.find(m => m.role === 'user')?.content || ''; a = s.messages.find(m => m.role === 'assistant')?.content || ''; }
+      else if (s.text) { u = s.text.slice(0, 60); a = '...'; }
+      else if (s.instruction) { u = s.instruction; a = s.output; }
+      return `<tr><td>${i+1}</td><td>${s.messages ? 'messages' : s.text ? 'text' : 'instr'}</td><td title="${esc(u)}">${esc(u).slice(0,50)}</td><td title="${esc(a)}">${esc(a).slice(0,50)}</td></tr>`;
+    }).join('');
+    $('data-table').classList.remove('hidden');
+  }
+}
+
+// ══════════════ LORA ══════════════
+function getLoraConfig() {
+  return {
+    data_file: $('data-path').value,
+    model_name: $('lora-model').value,
+    r: parseInt($('lora-r').value),
+    alpha: parseInt($('lora-alpha').value),
+    lr: parseFloat($('lora-lr').value),
+    epochs: parseInt($('lora-epochs').value),
+    target_modules: $('lora-target').value,
+    output_dir: $('lora-output').value,
+  };
+}
+
+async function startTraining() {
+  const btn = $('btn-train');
+  btn.disabled = true; btn.textContent = '训练中...';
+  $('btn-cancel').classList.remove('hidden');
+  $('report-card').classList.add('hidden');
+  $('loss-chart').classList.add('hidden');
+  $('log-box').innerHTML = '';
+
+  const res = await api('POST', '/api/tuner/lora/start', getLoraConfig());
+  if (res.error) { alert('启动失败: ' + res.error); resetTrainBtn(); return; }
+  pollTimer = setInterval(pollStatus, 1500);
+}
+
+async function cancelTraining() {
+  await api('POST', '/api/tuner/lora/cancel');
+  clearInterval(pollTimer);
+  resetTrainBtn();
+}
+
+async function pollStatus() {
+  const d = await api('GET', '/api/tuner/status');
+  $('progress-fill').style.width = d.progress + '%';
+  $('progress-fill').textContent = d.progress + '%';
+  $('status-msg').textContent = d.message;
+
+  const badge = $('status-badge');
+  badge.className = 'badge ' + d.status;
+  const labels = { idle: '就绪', running: '训练中', done: '完成', error: '错误' };
+  badge.textContent = labels[d.status] || d.status;
+
+  if (d.loss_history && d.loss_history.length) {
+    $('log-box').innerHTML = d.loss_history.map(h => `Step ${h.step}: loss=<b>${h.loss.toFixed(4)}</b>`).join('<br>');
+    drawLossChart(d.loss_history);
+  }
+
+  if (d.status === 'done') {
+    clearInterval(pollTimer);
+    resetTrainBtn();
+    showReport(d);
+  }
+  if (d.status === 'error') {
+    $('log-box').innerHTML += '<br><span style="color:var(--danger)">' + d.error + '</span>';
+    clearInterval(pollTimer);
+    resetTrainBtn();
+  }
+}
+
+function resetTrainBtn() {
+  const btn = $('btn-train');
+  btn.disabled = false; btn.textContent = '重新训练';
+  $('btn-cancel').classList.add('hidden');
+}
+
+function showReport(d) {
+  $('report-card').classList.remove('hidden');
+  if (d.baseline_semantic != null && d.trained_semantic != null) {
+    const ds = d.trained_semantic - d.baseline_semantic;
+    $('metric-semantic').textContent = d.baseline_semantic.toFixed(3) + ' → ' + d.trained_semantic.toFixed(3);
+    $('delta-semantic').innerHTML = '<span class="delta ' + (ds >= 0 ? 'up' : 'down') + '">' + (ds >= 0 ? '↑' : '↓') + ' ' + ds.toFixed(3) + '</span>';
+    const od = d.trained_overlap - d.baseline_overlap;
+    $('metric-overlap').textContent = d.baseline_overlap.toFixed(3) + ' → ' + d.trained_overlap.toFixed(3);
+    $('delta-overlap').innerHTML = '<span class="delta ' + (od >= 0 ? 'up' : 'down') + '">' + (od >= 0 ? '↑' : '↓') + ' ' + od.toFixed(3) + '</span>';
+  }
+}
+
+function drawLossChart(history) {
+  const canvas = $('loss-chart');
+  canvas.classList.remove('hidden');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.offsetWidth * 2;
+  const H = canvas.height = 200 * 2;
+  ctx.clearRect(0, 0, W, H);
+
+  if (history.length < 2) return;
+  const losses = history.map(h => h.loss);
+  const minL = Math.min(...losses), maxL = Math.max(...losses);
+  const range = maxL - minL || 1;
+  const pad = 30;
+
+  ctx.strokeStyle = '#a78bfa'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  history.forEach((h, i) => {
+    const x = pad + (i / (history.length - 1)) * (W - 2 * pad);
+    const y = pad + (1 - (h.loss - minL) / range) * (H - 2 * pad);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Grid
+  ctx.strokeStyle = '#2a2a3a'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad + i * (H - 2 * pad) / 4;
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke();
+    ctx.fillStyle = '#888'; ctx.font = '20px monospace';
+    ctx.fillText((maxL - (i * range / 4)).toFixed(3), 2, y + 6);
+  }
+}
+
+// ══════════════ ROME ══════════════
+async function applyRome() {
+  const calib = $('rome-calib').value.trim().split('\n').filter(Boolean);
+  const tests = $('rome-tests').value.trim().split('\n').filter(Boolean);
+  $('rome-result').innerHTML = '<span class="info-tag info">正在应用 ROME 编辑...</span>';
+  const res = await api('POST', '/api/tuner/rome/apply', {
+    subject: $('rome-subject').value,
+    relation: $('rome-relation').value,
+    target: $('rome-target').value,
+    layer_idx: parseInt($('rome-layer').value),
+    lam: parseFloat($('rome-lam').value),
+    calibration_prompts: calib,
+    test_prompts: tests,
+  });
+  if (res.error) {
+    $('rome-result').innerHTML = '<span class="info-tag warn">错误: ' + esc(res.error) + '</span>';
+  } else {
+    $('rome-result').innerHTML = '<span class="info-tag good">编辑完成！测试输出: ' + esc(res.test_output) + '</span>';
+    updateEditHistory();
+  }
+}
+
+// ══════════════ MEMIT ══════════════
+let memitRowCount = 3;
+function addMemitRow() {
+  const container = $('memit-rows');
+  const i = memitRowCount++;
+  container.insertAdjacentHTML('beforeend', `<div class="edit-row" id="memit-row-${i}">
+    <div class="field"><label>Subject</label><input id="memit-subj-${i}" placeholder="如: 牵手"></div>
+    <div class="field"><label>Relation</label><input id="memit-rel-${i}" placeholder="如: 在恋爱中是一种"></div>
+    <div class="field"><label>Target</label><input id="memit-tgt-${i}" placeholder="如: 常见的亲密表达"></div>
+    <div class="field" style="max-width:80px"><label>层</label><input id="memit-layer-${i}" type="number" value="15"></div>
+    <button class="btn-danger btn-sm" onclick="$('memit-row-${i}').remove()" style="margin-bottom:4px">✕</button>
+  </div>`);
+}
+function addMemitPreset() {
+  const presets = [
+    { subj: '牵手', rel: '在恋爱中是一种', tgt: '常见的亲密表达方式' },
+    { subj: '拥抱', rel: '在恋爱中是一种', tgt: '表达温暖和安慰的方式' },
+    { subj: '约会', rel: '在恋爱中是指', tgt: '两个人共同度过的美好时光' },
+  ];
+  while ($('memit-rows').children.length > 0) $('memit-rows').firstChild.remove();
+  memitRowCount = 0;
+  presets.forEach((p, i) => {
+    addMemitRow();
+    setTimeout(() => {
+      const el = (id) => document.getElementById(id);
+      const r = el('memit-row-' + i);
+      if (!r) return;
+      const subj = r.querySelector('[id^="memit-subj-"]');
+      const rel = r.querySelector('[id^="memit-rel-"]');
+      const tgt = r.querySelector('[id^="memit-tgt-"]');
+      if (subj) subj.value = p.subj;
+      if (rel) rel.value = p.rel;
+      if (tgt) tgt.value = p.tgt;
+    }, 0);
+  });
+}
+async function applyMemit() {
+  const rows = $('memit-rows').children;
+  const requests = [];
+  for (const row of rows) {
+    const id = row.id.replace('memit-row-', '');
+    const subj = row.querySelector('[id^="memit-subj-"]')?.value;
+    const rel = row.querySelector('[id^="memit-rel-"]')?.value;
+    const tgt = row.querySelector('[id^="memit-tgt-"]')?.value;
+    const layer = row.querySelector('[id^="memit-layer-"]')?.value;
+    if (subj && tgt) requests.push({ subject: subj, relation: rel || '', target: tgt, layer_idx: parseInt(layer) || 15, lam: 5.0 });
+  }
+  if (!requests.length) { alert('请至少添加一条编辑'); return; }
+  $('memit-result').innerHTML = '<span class="info-tag info">正在应用 MEMIT 批量编辑...</span>';
+  const calib = $('memit-calib').value.trim().split('\n').filter(Boolean);
+  const res = await api('POST', '/api/tuner/memit/apply', { requests, calibration_prompts: calib });
+  if (res.error) {
+    $('memit-result').innerHTML = '<span class="info-tag warn">错误: ' + esc(res.error) + '</span>';
+  } else {
+    $('memit-result').innerHTML = '<span class="info-tag good">批量编辑完成！</span><div style="margin-top:8px">' +
+      res.results.map(r => `<div style="margin:4px 0;font-size:.85em"><b>${esc(r.subject)}</b> → ${esc(r.output).slice(0,60)}</div>`).join('') +
+      '</div>';
+    updateEditHistory();
+  }
+}
+
+async function updateEditHistory() {
+  const d = await api('GET', '/api/tuner/status');
+  if (d.edit_results && d.edit_results.length) {
+    $('edit-history').innerHTML = d.edit_results.map(e =>
+      `<div style="margin:4px 0">[${e.type}] <b>${esc(e.subject)}</b> → ${esc(e.target)}<br><span style="color:var(--dim);font-size:.8em">输出: ${esc(e.test_output).slice(0, 80)}</span></div>`
+    ).join('');
+  }
+}
+
+// ══════════════ MODEL OPS ══════════════
+async function loadBaseModel() {
+  const res = await api('POST', '/api/tuner/model/load_base', { model_name: $('lora-model').value });
+  alert(res.ok ? res.message : '错误: ' + res.error);
+}
+async function loadLoraAdapter() {
+  const res = await api('POST', '/api/tuner/model/load_lora', { adapter_path: $('lora-output').value });
+  alert(res.ok ? res.message : '错误: ' + res.error);
+}
+async function runEval() {
+  $('eval-result').innerHTML = '<span class="info-tag info">运行评估中...（暂用状态接口）</span>';
+  const d = await api('GET', '/api/tuner/status');
+  $('eval-result').innerHTML = '<table class="data-table"><tr><th>指标</th><th>基线</th><th>训练后</th><th>变化</th></tr>' +
+    `<tr><td>语义相似度</td><td>${d.baseline_semantic?.toFixed(3)||'—'}</td><td>${d.trained_semantic?.toFixed(3)||'—'}</td><td>${d.trained_semantic != null ? ((d.trained_semantic - (d.baseline_semantic||0)).toFixed(3)) : '—'}</td></tr>` +
+    `<tr><td>Token重叠度</td><td>${d.baseline_overlap?.toFixed(3)||'—'}</td><td>${d.trained_overlap?.toFixed(3)||'—'}</td><td>${d.trained_overlap != null ? ((d.trained_overlap - (d.baseline_overlap||0)).toFixed(3)) : '—'}</td></tr></table>`;
+}
+
+// ══════════════ TEST CHAT ══════════════
+async function sendTestChat() {
+  const input = $('test-chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  const box = $('test-chat-box');
+  box.innerHTML += '<div class="chat-msg chat-user">' + esc(msg) + '</div>';
+  input.value = '';
+  box.scrollTop = box.scrollHeight;
+  box.innerHTML += '<div class="chat-msg chat-assistant" id="test-loading">*思考中...*</div>';
+  box.scrollTop = box.scrollHeight;
+
+  const res = await api('POST', '/api/tuner/chat', { message: msg });
+  const loading = document.getElementById('test-loading');
+  if (loading) loading.remove();
+  box.innerHTML += '<div class="chat-msg chat-assistant">' + esc(res.response || res.error || '...') + '</div>';
+  box.scrollTop = box.scrollHeight;
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// Init
+addMemitRow(); addMemitRow(); addMemitRow();
+updateEditHistory();
+pollStatus();
+setInterval(pollStatus, 5000);
+</script>
+</body>
+</html>
