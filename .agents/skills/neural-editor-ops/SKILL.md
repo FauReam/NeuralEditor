@@ -43,14 +43,18 @@ Start-Sleep 20
 Invoke-RestMethod -Uri http://localhost:8765/api/health -TimeoutSec 5
 # 应返回 {"status":"ok","version":"0.2.0"}
 
-# 4. 启动隧道（后台）
+# 4. 检查 8765 端口（必须先确认端口在监听，否则隧道白开）
+netstat -ano | Select-String "8765.*LISTENING"
+# 没输出 = Python 服务器没起来，回到步骤2
+
+# 5. 启动隧道（后台）
 .\cloudflared.exe tunnel --url http://localhost:8765 --no-autoupdate
 # 等待 10 秒，从日志提取 https://xxx.trycloudflare.com
 
-# 5. 设置 Admin 密码 + 签发 Key（注意 cwd！）
+# 6. 设置 Admin 密码 + 签发 Key（注意 cwd！）
 .venv\Scripts\python.exe -c "import sys,os;os.chdir('C:/Users/46326/NeuralEditor');sys.path.insert(0,'.');from src.web.server import APIKeyManager;m=APIKeyManager();m.set_admin_password('admin123');k=m.generate_key('admin',expires_days=365);print(k['api_key'])"
 
-# 6. 验证公网
+# 7. 验证公网
 Invoke-RestMethod -Uri https://<tunnel-url>/api/health -TimeoutSec 15
 # 530 错误时等待 10 秒重试
 ```
@@ -80,6 +84,7 @@ API Key: <key>
 | 4 | 公网 530 | cloudflared 未就绪 | 等 10-15 秒重试 |
 | 5 | Unknown Error（前端） | romance.html api() 无 catch | 已修复：api() 改为 async/await + try/catch |
 | 6 | 服务器 ~10 分钟无声崩溃 | idle 崩溃（未根除） | 用户报 500 时重启服务器 |
+| 7 | 公网 502/连接被拒绝 | cloudflared 在跑但 Python 没监听 8765 | 启动隧道前先 `netstat -ano \| Select-String "8765.*LISTENING"` |
 
 ---
 
@@ -128,9 +133,9 @@ API Key: <key>
 ### 验证有效的启动流程
 
 ```
-杀进程 → python -c 启动 → 等20s health → cloudflared 隧道 → 签发Key → 公网验证 → 更新访问链接.txt
+杀进程 → python -c 启动 → 等20s health → 检查8765端口 → cloudflared 隧道 → 签发Key → 公网验证 → 更新访问链接.txt
 ```
-六步总耗时约 60 秒，首次公网可能 530，10 秒重试即通。
+七步总耗时约 60 秒。⚠️ 步骤4检查端口必须在步骤5启动隧道之前，否则隧道白开。
 
 ### 下次启动只需照做 skill 中的六步命令，不改任何代码。
 
