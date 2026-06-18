@@ -420,3 +420,54 @@ API Key: <key>
 3. **PowerShell 不支持 `&&`** — 用 `;` 或分次执行
 4. **API Key 生成 cwd 必须正确** — 相对路径依赖于工作目录
 5. **前端 API 调用必须有 try/catch** — `fetch().then(r=>r.json())` 在错误时抛未捕获异常
+
+### 预防 500/502/530 和进程崩溃的设计模式
+
+#### 🔴 致命级 — 防止进程无声崩溃
+
+| 原则 | 做法 | 反例 |
+|------|------|------|
+| **推理串行化** | 所有 `model.generate()` 调用包在 `with lock:` 内 | 多线程直接调用共享 LLM |
+| **CUDA 同步** | 启动时设 `CUDA_LAUNCH_BLOCKING=1` | 默认异步 + 多线程 |
+| **启动方式锁定** | 永远 `python -c "from x import main;main()"` | `python -m`, `python file.py` |
+| **Handler 显式 return** | 每个 handler 末尾 `return`，防止 fall-through | 依赖 elif 链隐式终止 |
+| **LLM 推理 try/except** | 每次 `state.llm.chat()` 包 try/except + 兜底文本 | 裸调用，CUDA OOM 直接杀进程 |
+
+#### 🟠 严重级 — 防止 HTTP 500
+
+| 原则 | 做法 | 反例 |
+|------|------|------|
+| **do_POST 全局 try** | `do_POST` 方法整体 try/except → 500 JSON 响应 | 异常传播到 http.server → 连接断开 |
+| **import 完整性验证** | 启动前 `py_compile.compile()` 检查语法 | 启动后触发 NameError |
+| **文件读取防御** | `_serve_file` 前检查 `fp.exists()` | 路径不存在时抛 FileNotFoundError |
+| **JSON body 容错** | `_read()` 先读 Content-Length，空 body 返回 `{}` | 强制 `json.loads("")` |
+
+#### 🟡 中等级 — 防止 502/530 网关错误
+
+| 原则 | 做法 | 反例 |
+|------|------|------|
+| **隧道就绪等待** | cloudflared 启动后等 15 秒 + 重试 health | 隧道刚创建就发请求 |
+| **后端存活监控** | 每次操作前 `health check`（Skill 自动） | 假设后端一直在运行 |
+| **Cloudflare 重试** | 530 错误时等待 10 秒重试 3 次 | 一次失败就放弃 |
+
+#### 🟢 前端防御
+
+| 原则 | 做法 | 反例 |
+|------|------|------|
+| **API 函数容错** | `api()` 内部 try/catch，永远返回 `{error}` 对象 | `fetch().then(r=>r.json())` 无 catch |
+| **HTTP status 检查** | `if (!r.ok) throw new Error(...)` | 假设 200 就是 JSON |
+| **UI 友好降级** | 错误时显示 `res.error` 文本，不禁用输入框 | 吐 "Unknown Error" 后页面卡死 |
+| **localStorage 安全** | API Key 存 localStorage 但验证后才使用 | 过期 Key 静默失败 |
+
+#### 📋 部署检查清单（每次启动后）
+
+```
+□ py_compile 检查语法
+□ health check 返回 ok
+□ POST /new 返回 has_llm=true
+□ POST /chat 返回角色回复（不是兜底文本）
+□ 公网 health check 通过
+□ 访问链接.txt 已更新
+□ .gitignore 排除 api_keys.json
+□ git push 同步 GitHub
+```
