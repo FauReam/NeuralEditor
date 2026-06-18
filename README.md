@@ -14,6 +14,37 @@
   2. **LoRA 微调**（轻量 adapter，可开关）
   3. **ROME / MEMIT**（单条/批量神经元编辑，副作用最小）
 - **Web 服务 + API Key 认证**：多用户远程接入，独立会话隔离
+- **自进化运维系统**：neural-editor-ops skill 自动健康检查 + 诊断修复管道
+- **角色-模型绑定**：YAML 配置角色专属模型，前端不可更改
+- **Cloudflare Tunnel 公网部署**：一行命令，全球可访问
+- **前端 API 错误处理加固**：所有网络/HTTP 错误友好降级，不再弹 Unknown Error
+
+## 2026-06-18 更新日志
+
+### 稳定性修复（v4）
+- **LLM 推理锁**：`llm_engine.py` 添加 `_inference_lock`，多线程排队推理，杜绝 CUDA 并发崩溃
+- **CUDA_LAUNCH_BLOCKING=1**：同步 CUDA kernel 调用，消除异步竞态
+- **server.py 补全 import**：添加缺失的 `import io` 和 `import signal`
+- 修复前 4-7 分钟崩溃，修复后延长至约 10 分钟（idle 崩溃仍未根除，持续排查中）
+
+### 后端新增
+- `GET /api/romance/characters` — 角色列表 API，含名称、描述、绑定模型
+- `/api/romance/new` 自动从角色 YAML 读取 `model_path`，用户不可覆盖
+- 角色配置 `config/characters/default.yaml` 新增 `model_path` 字段
+
+### 前端修复
+- `romance.html` `api()` 函数改为 async/await + try/catch，不再抛未捕获异常
+- Settings modal 角色选择器支持动态加载
+
+### 运维工具链
+- **neural-editor-ops skill v4**：完整的 5 步自进化运维管道（诊断→策略→干预→验证→学习）
+- 记录 11 个致命/严重陷阱及修复方案
+- 完整启动流程（一键杀旧进程→启动服务→启动隧道→签发 Key）
+- 强制规则：每次给出公网 URL 后同步更新 `访问链接.txt`
+
+### 部署
+- Cloudflare 临时隧道公网访问
+- GitHub 仓库：https://github.com/FauReam/NeuralEditor
 
 ## Agent 快速启动指南（零试错）
 

@@ -90,3 +90,5 @@ cloudflared.exe
 
 # Sentinel log
 __sentinel__.log
+
+src/data/api_keys.json
