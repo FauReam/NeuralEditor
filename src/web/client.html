@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>💕 Heartscape Chat</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#faf5f7;--surface:#fff;--surface2:#fef8fa;--border:#f0dce3;
+  --text:#3d2c33;--dim:#9e8a92;--accent:#d4456a;--accent2:#e86582;
+  --green:#4caf84;--gold:#e8a840;--bar-bg:#f5e0e8;
+}
+body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh}
+
+/* ── 输入 API Key 弹窗 ── */
+.key-prompt{display:flex;align-items:center;justify-content:center;min-height:100vh;min-height:100dvh;padding:20px}
+.key-prompt .card{background:var(--surface);border-radius:20px;padding:32px 28px;max-width:420px;width:100%;box-shadow:0 4px 30px rgba(0,0,0,.06);border:1px solid var(--border)}
+.key-prompt .card h1{font-size:1.4em;color:var(--accent);text-align:center;margin-bottom:4px}
+.key-prompt .card .sub{text-align:center;font-size:.85em;color:var(--dim);margin-bottom:24px}
+.key-prompt .field{margin-bottom:16px}
+.key-prompt .field label{display:block;font-size:.82em;color:var(--dim);margin-bottom:5px;font-weight:600}
+.key-prompt .field input{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:.92em;outline:none;font-family:inherit;background:var(--bg);transition:border-color .2s}
+.key-prompt .field input:focus{border-color:var(--accent)}
+.key-prompt .field .hint{font-size:.75em;color:var(--dim);margin-top:4px}
+.key-prompt .btn{display:block;width:100%;padding:12px;border:none;border-radius:10px;font-size:.95em;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
+.key-prompt .btn.primary{background:var(--accent);color:#fff}
+.key-prompt .btn.primary:hover{opacity:.9}
+.key-prompt .btn.primary:disabled{opacity:.5;cursor:not-allowed}
+.key-prompt .msg{text-align:center;font-size:.82em;margin-top:12px;min-height:20px}
+.key-prompt .msg.err{color:#e05050}
+.key-prompt .msg.ok{color:var(--green)}
+
+/* ── 聊天界面 ── */
+.chat-app{display:flex;height:100vh;height:100dvh;overflow:hidden}
+.sidebar{width:280px;min-width:280px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
+.sidebar-head{background:linear-gradient(135deg,#fef0f3,#fdf6f0);padding:16px;text-align:center;border-bottom:1px solid var(--border)}
+.sidebar-head h1{font-size:1.1em;color:var(--accent)}
+.sidebar-head .sub{font-size:.73em;color:var(--dim);margin-top:2px;word-break:break-all}
+.char-card{padding:14px 16px}
+.char-card .name{font-size:1.05em;font-weight:bold;color:var(--accent)}
+.char-card .rel{font-size:.8em;color:var(--dim);margin:2px 0}
+.char-card .persona{font-size:.78em;color:var(--dim);margin:5px 0;line-height:1.4}
+.aff-wrap{margin:8px 0}
+.aff-wrap .lbl{font-size:.74em;color:var(--dim);display:flex;justify-content:space-between}
+.aff-bar{height:18px;background:var(--bar-bg);border-radius:9px;overflow:hidden;margin:3px 0}
+.aff-fill{height:100%;background:linear-gradient(90deg,#f0a0b0,var(--accent));border-radius:9px;transition:width .6s;display:flex;align-items:center;justify-content:center;color:#fff;font-size:.65em;font-weight:bold;min-width:30px}
+.scene-info,.choices-box{padding:10px 16px;border-top:1px solid var(--border)}
+.scene-info h3,.choices-box h3{font-size:.8em;color:var(--accent);margin-bottom:4px}
+.scene-info p{font-size:.78em;color:var(--dim);line-height:1.4}
+.choice-btn{display:block;width:100%;padding:9px 12px;margin:5px 0;background:var(--bg);border:1.5px solid #f0d0d8;border-radius:9px;font-size:.82em;text-align:left;cursor:pointer;transition:all .2s;color:var(--text);font-family:inherit}
+.choice-btn:hover{border-color:var(--accent);background:var(--surface2);transform:translateX(2px)}
+.choice-btn .dt{font-size:.78em;color:var(--dim);float:right}
+.save-zone{padding:10px 16px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px}
+.save-zone .row{display:flex;gap:6px}
+.save-zone input{flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:.8em;outline:none;font-family:inherit}
+.save-zone button{flex:1;padding:7px 10px;border:none;border-radius:8px;font-size:.8em;font-weight:600;cursor:pointer;font-family:inherit}
+.main-area{flex:1;display:flex;flex-direction:column;min-width:0}
+.chat-head{padding:12px 18px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:8px}
+.chat-head .dot{width:7px;height:7px;border-radius:50%}
+.chat-head .title{font-size:.85em;color:var(--dim)}
+.chat-head .badge{padding:3px 10px;border-radius:8px;font-size:.7em;font-weight:600;margin-left:auto}
+.chat-head .badge.on{background:#e8f5e9;color:var(--green)}
+.chat-head .badge.off{background:#f5f5f5;color:#999}
+.chat-main{flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:2px}
+.chat-msg{padding:9px 14px;border-radius:12px;max-width:82%;word-break:break-word;line-height:1.55;font-size:.9em;animation:fadeIn .25s}
+.chat-msg.user{background:var(--accent);color:#fff;align-self:flex-end;border-radius:12px 12px 4px 12px}
+.chat-msg.assistant{background:var(--surface);border:1px solid var(--border);align-self:flex-start;border-radius:12px 12px 12px 4px}
+.chat-msg.system{background:transparent;border:1px dashed var(--border);color:var(--dim);font-size:.78em;align-self:center;text-align:center;max-width:88%}
+.input-bar{padding:12px 18px;border-top:1px solid var(--border);background:var(--surface);display:flex;gap:8px}
+.input-bar input{flex:1;padding:11px 16px;border:1.5px solid var(--border);border-radius:22px;font-size:.92em;outline:none;font-family:inherit;background:var(--bg)}
+.input-bar input:focus{border-color:var(--accent)}
+.hidden{display:none!important}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:700px){
+  .chat-app{flex-direction:column}
+  .sidebar{width:100%;min-width:100%;max-height:40vh;border-right:none;border-bottom:1px solid var(--border)}
+  .chat-msg{max-width:90%}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ 输入 API Key ═══════════ -->
+<div id="key-prompt" class="key-prompt">
+  <div class="card">
+    <h1>💕 Heartscape</h1>
+    <div class="sub">远程恋爱模拟</div>
+    <div class="field">
+      <label>🔑 请输入 API Key 以连接服务器</label>
+      <input id="key-input" placeholder="ne_xxxxxxxxxxxxxxxx..." autocomplete="off" value="">
+      <div class="hint">由服务器管理员提供，可在网址后加 <code>?api_key=你的Key</code> 直达</div>
+    </div>
+    <button class="btn primary" onclick="doConnect()" id="connect-btn">✨ 连接</button>
+    <div class="msg" id="prompt-msg"></div>
+  </div>
+</div>
+
+<!-- ═══════════ 聊天界面 ═══════════ -->
+<div id="chat-screen" class="chat-app hidden">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h1>Heartscape</h1>
+      <div class="sub" id="host-label"></div>
+    </div>
+    <div class="char-card">
+      <div class="name" id="char-name">---</div>
+      <div class="rel" id="char-rel">---</div>
+      <div class="persona" id="char-persona">---</div>
+      <div class="aff-wrap">
+        <div class="lbl"><span>好感度</span><span id="aff-label">0</span></div>
+        <div class="aff-bar"><div class="aff-fill" id="aff-fill" style="width:50%">0</div></div>
+      </div>
+    </div>
+    <div class="scene-info">
+      <h3>📍 当前场景</h3>
+      <p id="scene-desc">---</p>
+    </div>
+    <div class="choices-box">
+      <h3>🎭 可选行动</h3>
+      <div id="choice-list"></div>
+    </div>
+    <div class="save-zone">
+      <div class="row"><input id="save-slot" placeholder="存档名" value="auto" onkeydown="if(event.key==='Enter')saveGame()"></div>
+      <div class="row">
+        <button onclick="saveGame()" style="background:var(--accent);color:#fff">💾 保存</button>
+        <button onclick="loadGame()" style="background:var(--bg);color:var(--text);border:1px solid var(--border)">📂 读取</button>
+      </div>
+    </div>
+  </aside>
+  <main class="main-area">
+    <div class="chat-head">
+      <div class="dot" id="llm-dot" style="background:#ccc"></div>
+      <span class="title" id="chat-title">连接中...</span>
+      <span class="badge on" id="conn-badge">已连接</span>
+      <button onclick="doDisconnect()" style="background:none;border:1px solid var(--border);padding:6px 12px;border-radius:6px;font-size:.78em;cursor:pointer;color:var(--dim);font-family:inherit">断开</button>
+    </div>
+    <div class="chat-main" id="chat-main">
+      <div class="chat-msg system">正在连接服务器...</div>
+    </div>
+    <div class="input-bar">
+      <input id="chat-input" placeholder="输入你想说的话..." onkeydown="if(event.key==='Enter')sendMessage()" disabled>
+      <button onclick="sendMessage()" style="padding:10px 16px;border:none;border-radius:22px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap">发送</button>
+    </div>
+  </main>
+</div>
+
+<script>
+let SERVER = '';
+let API_KEY = '';
+let gameState = null;
+
+function $(id) { return document.getElementById(id); }
+
+// ── API ──
+async function callApi(method, path, body) {
+  const url = SERVER.replace(/\/+$/, '') + path;
+  const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY };
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(url, opts).then(r => r.json());
+}
+
+// ── UI ──
+function addMsg(role, text) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg ' + role;
+  el.textContent = text;
+  const main = $('chat-main');
+  main.appendChild(el);
+  main.scrollTop = main.scrollHeight;
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function updateCharUI(char) {
+  if (!char) return;
+  $('char-name').textContent = char.name;
+  $('char-rel').textContent = char.relationship;
+  $('char-persona').textContent = (char.personality || []).join(' / ') || char.background || '';
+  const aff = char.affection || 0;
+  const pct = Math.max(0, Math.min(100, (aff + 100) / 2));
+  $('aff-fill').style.width = pct + '%';
+  $('aff-fill').textContent = aff;
+  $('aff-label').textContent = aff;
+}
+
+function updateChoices(choices) {
+  const list = $('choice-list');
+  if (!choices || !choices.length) {
+    list.innerHTML = '<span style="font-size:.78em;color:var(--dim)">继续对话...</span>';
+  } else {
+    list.innerHTML = choices.map(c =>
+      `<button class="choice-btn" onclick="makeChoice('${c.id}')">${esc(c.text)}<span class="dt">${c.affection > 0 ? '+' + c.affection : c.affection}</span></button>`
+    ).join('');
+  }
+}
+
+function updateUI(state) {
+  gameState = state;
+  updateCharUI(state.character);
+  updateChoices(state.available_choices || []);
+  if (state.current_scene) $('scene-desc').textContent = state.scene_desc || state.current_scene;
+  $('llm-dot').style.background = state.has_llm ? 'var(--green)' : '#ccc';
+  $('chat-title').textContent = state.has_llm ? 'LLM 对话中' : '预设模式';
+}
+
+// ── 连接 / 断开 ──
+async function doConnect() {
+  const btn = $('connect-btn');
+  const msg = $('prompt-msg');
+
+  let key = ($('key-input').value || '').trim();
+
+  // 也检查 URL 参数（可能在输入框里也有）
+  if (!key) {
+    msg.className = 'msg err';
+    msg.textContent = '请输入 API Key';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '连接中...';
+  msg.className = 'msg';
+  msg.textContent = '正在验证...';
+
+  // 构建 server URL：当前页面同源
+  SERVER = window.location.origin;
+
+  try {
+    // 验证 Key
+    const verify = await callApi('POST', '/api/auth/verify', { api_key: key });
+    if (!verify.valid) {
+      msg.className = 'msg err';
+      msg.textContent = '❌ Key 无效或已过期';
+      btn.disabled = false;
+      btn.textContent = '✨ 连接';
+      return;
+    }
+
+    API_KEY = key;
+
+    // 初始化游戏
+    const res = await callApi('POST', '/api/romance/new', {
+      character: 'config/characters/default.yaml',
+      model_path: ''
+    });
+
+    if (res.ready) {
+      // 保存 Key 到 localStorage，下次自动填
+      try { localStorage.setItem('hc_apikey', API_KEY); } catch(e) {}
+
+      $('key-prompt').classList.add('hidden');
+      $('chat-screen').classList.remove('hidden');
+      $('host-label').textContent = window.location.hostname;
+
+      updateUI(res);
+      $('chat-main').innerHTML = '';
+      addMsg('system', `✅ 已连接 · Key: ${verify.key_prefix}`);
+      addMsg('system', '游戏已就绪，开始对话吧！');
+      $('chat-input').disabled = false;
+    } else {
+      msg.className = 'msg err';
+      msg.textContent = '游戏初始化失败';
+      btn.disabled = false;
+      btn.textContent = '✨ 连接';
+    }
+  } catch(e) {
+    msg.className = 'msg err';
+    msg.textContent = '❌ 连接失败: ' + (e.message || '无法访问服务器');
+    btn.disabled = false;
+    btn.textContent = '✨ 连接';
+  }
+}
+
+function doDisconnect() {
+  $('chat-screen').classList.add('hidden');
+  $('key-prompt').classList.remove('hidden');
+  $('connect-btn').disabled = false;
+  $('connect-btn').textContent = '✨ 连接';
+  $('prompt-msg').textContent = '';
+  $('prompt-msg').className = 'msg';
+  gameState = null;
+}
+
+// ── 聊天 ──
+async function sendMessage() {
+  const input = $('chat-input');
+  const msg = input.value.trim();
+  if (!msg || !gameState) return;
+  addMsg('user', msg);
+  input.value = '';
+  addMsg('assistant', '*思考中...*');
+  const loadingEl = $('chat-main').lastChild;
+  try {
+    const res = await callApi('POST', '/api/romance/chat', { message: msg });
+    if (loadingEl) loadingEl.textContent = res.response || '*嗯...*';
+    if (res.character) { updateCharUI(res.character); gameState.character = res.character; }
+    if (res.choices) updateChoices(res.choices);
+    if (res.scene) $('scene-desc').textContent = gameState?.character?.name ? gameState.character.name + '附近' : '日常';
+    $('chat-main').scrollTop = $('chat-main').scrollHeight;
+  } catch(e) {
+    if (loadingEl) loadingEl.textContent = '⚠️ 连接中断，请检查网络';
+    $('conn-badge').className = 'badge off';
+    $('conn-badge').textContent = '离线';
+  }
+}
+
+// ── 选项 ──
+async function makeChoice(cid) {
+  addMsg('system', '你做出了选择...');
+  try {
+    const res = await callApi('POST', '/api/romance/choice', { choice_id: cid });
+    if (res.ok) {
+      if (res.affection_delta) addMsg('system', `好感度 ${res.affection_delta > 0 ? '+' : ''}${res.affection_delta}`);
+      if (res.new_scene) $('scene-desc').textContent = res.scene_desc || res.new_scene;
+      updateCharUI(res.character);
+      updateChoices(res.choices || []);
+    }
+  } catch(e) { addMsg('system', '⚠️ 操作失败'); }
+}
+
+// ── 存档 ──
+async function saveGame() {
+  const slot = $('save-slot').value.trim() || 'auto';
+  try {
+    const res = await callApi('POST', '/api/romance/save', { slot });
+    if (res.ok) addMsg('system', `💾 已保存: ${slot}`);
+  } catch(e) { addMsg('system', '⚠️ 保存失败'); }
+}
+
+async function loadGame(slot) {
+  const s = slot || $('save-slot').value.trim() || 'auto';
+  try {
+    const res = await callApi('POST', '/api/romance/load', { slot: s });
+    if (res.ok && res.state) { updateUI(res.state); addMsg('system', `📂 已读取: ${s}`); }
+    else addMsg('system', '❌ 存档不存在: ' + s);
+  } catch(e) { addMsg('system', '⚠️ 读取失败'); }
+}
+
+// ── 初始化 ──
+(function() {
+  // 1. 从 URL 取 api_key 参数
+  const params = new URLSearchParams(window.location.search);
+  const urlKey = params.get('api_key') || '';
+
+  // 2. 如果没有，从 localStorage 取
+  const storedKey = localStorage.getItem('hc_apikey') || '';
+
+  const finalKey = urlKey || storedKey;
+
+  if (finalKey) {
+    // 有 Key，填进输入框，自动连接
+    $('key-input').value = finalKey;
+    if (urlKey) {
+      // 清理 URL 中的 key，保持分享链接干净
+      params.delete('api_key');
+      const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+      window.history.replaceState({}, '', newUrl);
+    }
+    // 自动连接
+    setTimeout(() => doConnect(), 300);
+  } else {
+    // 没 Key，显示输入框
+    $('key-input').value = '';
+    $('key-input').focus();
+    // 回车也能连接
+    $('key-input').addEventListener('keydown', e => { if (e.key === 'Enter') doConnect(); });
+  }
+
+  // 从 URL 取 server 参数（可选，用于自定义服务器地址）
+  const urlServer = params.get('server') || '';
+  if (urlServer) {
+    SERVER = urlServer;
+    params.delete('server');
+    window.history.replaceState({}, '', window.location.pathname + (params.toString() ? '?' + params.toString() : ''));
+  }
+})();
+</script>
+</body>
+</html>

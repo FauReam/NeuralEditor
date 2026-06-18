@@ -86,6 +86,13 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
 .consent-badge.yes{background:#e8f5e9;color:var(--green)}
 .consent-badge.no{background:#f5f5f5;color:var(--dim)}
 .hidden{display:none!important}
+/* API Key connection */
+.api-status{display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--bg);border-radius:8px;margin-top:8px;font-size:.8em}
+.api-status .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.api-status .dot.on{background:var(--green)}
+.api-status .dot.off{background:#ccc}
+.conn-banner{background:#e8f5e9;border:1px solid #a5d6b3;border-radius:8px;padding:8px 14px;margin:8px 0;font-size:.82em;color:#2e7d4a;display:flex;align-items:center;gap:8px}
+.conn-banner.warn{background:#fff3e0;border-color:#ffcc92;color:#c6700a}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 @media(max-width:700px){
@@ -187,6 +194,11 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
       <label>LLM 模型路径（留空使用预设回复）</label>
       <input id="set-model-path" placeholder="如: models/Qwen2.5-7B-Instruct">
     </div>
+    <div class="field">
+      <label>🔑 API Key（远程连接必填，本地使用可留空）</label>
+      <input id="set-api-key" placeholder="ne_xxxxxxxx... 由管理员提供">
+    </div>
+    <div id="api-conn-status"></div>
     <div class="tip">不填模型路径则使用内置预设回复，适合快速体验剧情。</div>
     <div class="tip" id="settings-consent-info" style="margin-top:8px"></div>
     <div class="btn-row">
@@ -248,11 +260,43 @@ let sessionId = null;
 let ratingValue = 0;
 let ratingTimer = null;
 let feedbackTimer = null;
+let apiKey = '';              // API Key for remote connection
 
 function $(id) { return document.getElementById(id); }
 
+// Load saved API key
+function loadApiKey() {
+  apiKey = localStorage.getItem('heartscape_api_key') || '';
+  if ($('set-api-key')) $('set-api-key').value = apiKey;
+}
+
+function saveApiKey(key) {
+  apiKey = key.trim();
+  if (apiKey) {
+    localStorage.setItem('heartscape_api_key', apiKey);
+  } else {
+    localStorage.removeItem('heartscape_api_key');
+  }
+}
+
+async function verifyApiKey(key) {
+  if (!key) return { valid: true, local: true };
+  try {
+    const res = await fetch('/api/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: key }),
+    }).then(r => r.json());
+    return res;
+  } catch(e) {
+    return { valid: false, error: '服务器连接失败' };
+  }
+}
+
 async function api(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['X-API-Key'] = apiKey;
+  const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
   return fetch(path, opts).then(r => r.json());
 }
@@ -322,6 +366,27 @@ function closeSettings() {
 async function applySettings() {
   const character = $('set-character').value;
   const modelPath = $('set-model-path').value.trim();
+  const keyInput = $('set-api-key').value.trim();
+
+  // Save API key
+  saveApiKey(keyInput);
+
+  // Verify API key if provided
+  if (apiKey) {
+    addMsg('system', '正在验证 API Key...');
+    const verify = await verifyApiKey(apiKey);
+    if (!verify.valid) {
+      addMsg('system', '❌ API Key 无效或已过期: ' + (verify.error || '未知错误'));
+      showApiStatus(false, verify.error || '无效 Key');
+      closeSettings();
+      return;
+    }
+    addMsg('system', `✅ API Key 验证成功 (${verify.key_prefix || '有效'})`);
+    showApiStatus(true, apiKey);
+  } else {
+    showApiStatus(null, '');
+  }
+
   closeSettings();
 
   addMsg('system', '正在初始化游戏...');
@@ -332,6 +397,18 @@ async function applySettings() {
     $('chat-input').disabled = false;
   } else {
     addMsg('system', '初始化失败，请重试。');
+  }
+}
+
+function showApiStatus(valid, keyStr) {
+  const el = $('api-conn-status');
+  if (!el) return;
+  if (valid === true) {
+    el.innerHTML = `<div class="conn-banner">🟢 已连接服务器 · Key: ${keyStr.slice(0,10)}...</div>`;
+  } else if (valid === false) {
+    el.innerHTML = `<div class="conn-banner warn">🔴 连接失败 · ${keyStr}</div>`;
+  } else {
+    el.innerHTML = '<div class="api-status"><span class="dot off"></span> 本地模式（无 API Key）</div>';
   }
 }
 
@@ -614,6 +691,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ══════════════ INIT ══════════════
+loadApiKey();
 loadSaveList();
 
 // Check stored consent

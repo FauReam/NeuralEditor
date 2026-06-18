@@ -13,6 +13,7 @@
   1. **提示工程**（零权重改动）
   2. **LoRA 微调**（轻量 adapter，可开关）
   3. **ROME / MEMIT**（单条/批量神经元编辑，副作用最小）
+- **Web 服务 + API Key 认证**：多用户远程接入，独立会话隔离
 
 ## 项目结构
 
@@ -26,11 +27,13 @@ heartscape-engine/
 ├── data/
 │   ├── saves/              # JSON存档
 │   ├── memories/           # Chroma向量库
-│   ├── edits/              # 编辑日志
+│   ├── sessions/           # 用户会话日志
+│   ├── feedback/           # 用户评分反馈
 │   └── romance_chat_sample.jsonl  # LoRA训练样本
 ├── scripts/
 │   ├── download_model.py   # 下载 Qwen GGUF
 │   ├── train_lora.py       # LoRA训练（配置驱动）
+│   ├── web_ui.py           # Web UI 启动器
 │   ├── demo_no_llm.py      # 无模型剧情测试
 │   └── editing/
 │       ├── rome_edit.py    # 单条事实 ROME 编辑
@@ -40,6 +43,7 @@ heartscape-engine/
 │   ├── models/             # LLM推理、模型编辑
 │   ├── core/               # 角色、剧情、记忆、状态机
 │   ├── training/           # LoRATrainer
+│   ├── web/                # Web 服务 + 前端页面
 │   └── utils/              # 配置加载、JSON存储、场景解析
 └── tests/                  # 单元测试
 ```
@@ -54,6 +58,83 @@ heartscape-engine/
 
 > **上下文上限**：4070 12GB 在 4-bit 量化下，稳定运行上限约 **8K-16K**。32K 为理论架构上限，本地运行会 OOM。
 
+---
+
+## Web 服务（API Key 多用户模式）
+
+服务器发出 API Key，远程客户端凭 Key 直连，每个 Key 拥有独立游戏会话。
+
+### 启动服务器
+
+```bash
+python -m src.web.server
+# 端口: 8765
+```
+
+首次启动会自动生成随机 Admin 密码，打印在终端。
+
+### 页面一览
+
+| 页面 | 地址 | 说明 |
+|------|------|------|
+| 微调端 | `http://localhost:8765/` | LoRA 训练 + ROME/MEMIT 编辑 |
+| 恋爱游戏 | `http://localhost:8765/romance` | 内嵌式聊天（支持 API Key） |
+| **远程客户端** | `http://localhost:8765/client` | 独立聊天客户端，带 Key 直连 |
+| **管理后台** | `http://localhost:8765/admin` | 签发/撤销 Key，会话监控 |
+
+### 使用流程
+
+```
+1. 管理员 → 登录 /admin → 生成 API Key（可设过期天数、请求上限）
+2. 管理员 → 把 Key 发给用户
+3. 用户   → 打开 /client?api_key=ne_xxx...  → 自动验证 → 直接聊天
+4. 管理员 → /admin 随时撤销 Key、查看活跃会话
+```
+
+### 客户端连接方式
+
+```
+# 一键链接（推荐）
+http://服务器地址:8765/client?api_key=ne_xxx...
+
+# Header 方式
+curl -H "X-API-Key: ne_xxx..." http://server:8765/api/romance/state
+
+# Bearer Token
+curl -H "Authorization: Bearer ne_xxx..." http://server:8765/api/romance/state
+```
+
+### API 端点
+
+| 端点 | 方法 | 说明 | 需要 Key |
+|------|------|------|:---:|
+| `/api/health` | GET | 服务器健康检查 | ❌ |
+| `/api/auth/verify` | POST | 验证 API Key 有效性 | ❌ |
+| `/api/romance/new` | POST | 初始化游戏 | ❌ |
+| `/api/romance/chat` | POST | 发送对话 | ❌ |
+| `/api/romance/choice` | POST | 选择选项 | ❌ |
+| `/api/romance/save` | POST | 存档 | ❌ |
+| `/api/romance/load` | POST | 读档 | ❌ |
+| `/api/romance/state` | GET | 获取当前状态 | ❌ |
+| `/api/admin/keys` | GET | 列出所有 Key | 🔐 |
+| `/api/admin/keys/generate` | POST | 签发新 Key | 🔐 |
+| `/api/admin/keys/revoke` | POST | 撤销 Key | 🔐 |
+| `/api/admin/sessions` | GET | 活跃会话列表 | 🔐 |
+
+### 公网访问
+
+开发机在校园/企业内网（NAT 后），公网 IP 不可直连。需通过隧道工具穿透：
+
+```bash
+# Cloudflare Tunnel（免费）
+cloudflared tunnel --url http://localhost:8765
+
+# ngrok（需 VPN 翻墙）
+ngrok http 8765
+```
+
+---
+
 ## 快速开始
 
 ```bash
@@ -63,8 +144,11 @@ pip install -e ".[dev,train]"
 # 下载模型（约4GB）
 python scripts/download_model.py
 
-# 启动交互
+# 启动命令行交互
 python -m src.main
+
+# 启动 Web 服务（含远程客户端）
+python -m src.web.server
 
 # 无模型演示模式（测试剧情逻辑）
 python -m src.main --demo
@@ -76,6 +160,7 @@ python scripts/demo_no_llm.py
 ```bash
 make install        # pip install -e ".[dev,train]"
 make run            # python -m src.main
+make web            # python -m src.web.server
 make test           # pytest tests/ -v
 make download-model # 下载 Qwen GGUF
 make train-lora     # 使用默认配置训练 LoRA

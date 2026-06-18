@@ -72,3 +72,15 @@ Thumbs.db
 
 # Logs
 *.log
+
+# API Key store (sensitive)
+data/api_keys.json
+data/admin_password.hash
+data/ngrok_*.txt
+data/server_*.txt
+
+# Tunnel binary
+ngrok.exe
+
+# Test outputs
+data/_test_*.py

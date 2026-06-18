@@ -3,22 +3,180 @@
 
 启动: python -m src.web.server
 端口: 8765
+
+认证模式:
+  - 服务端通过 Admin 面板（/admin）签发 API Key
+  - 客户端在请求头中携带 X-API-Key 或 URL 参数 ?api_key=xxx
+  - 每个 API Key 拥有独立的游戏会话
 """
 
+import hashlib
 import json
 import os
 import re
+import secrets
 import sys
 import threading
 import time
 import traceback
-from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from datetime import datetime, timedelta
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+
+# ═══════════════════════════════════════════════════════
+#  API Key Manager
+# ═══════════════════════════════════════════════════════
+
+class APIKeyManager:
+    """管理 API Key 的签发、验证、撤销。"""
+
+    KEY_PREFIX = "ne_"
+    STORE_PATH = Path("data/api_keys.json")
+    ADMIN_PASSWORD_FILE = Path("data/admin_password.hash")
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self._ensure_store()
+
+    def _ensure_store(self):
+        self.STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if not self.STORE_PATH.exists():
+            self.STORE_PATH.write_text(json.dumps({"keys": {}}, indent=2), encoding="utf-8")
+
+    def _read_store(self) -> dict:
+        try:
+            raw = self.STORE_PATH.read_text(encoding="utf-8")
+            return json.loads(raw)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {"keys": {}}
+
+    def _write_store(self, data: dict):
+        self.STORE_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def generate_key(
+        self,
+        description: str = "",
+        max_requests: int = 0,
+        expires_days: int = 0,
+        permissions: list[str] | None = None,
+    ) -> dict:
+        """签发一个新的 API Key"""
+        with self.lock:
+            store = self._read_store()
+            raw = secrets.token_hex(24)  # 48 hex chars
+            api_key = f"{self.KEY_PREFIX}{raw}"
+
+            now = datetime.now().isoformat()
+            expires_at = (
+                (datetime.now() + timedelta(days=expires_days)).isoformat()
+                if expires_days > 0
+                else None
+            )
+
+            key_info = {
+                "key_hash": self._hash(api_key),
+                "key_prefix": api_key[:8] + "..." + api_key[-4:],  # 显示用
+                "description": description,
+                "permissions": permissions or ["romance"],
+                "max_requests": max_requests,
+                "request_count": 0,
+                "created_at": now,
+                "expires_at": expires_at,
+                "revoked": False,
+                "last_used_at": None,
+            }
+
+            store["keys"][key_info["key_hash"]] = key_info
+            self._write_store(store)
+
+            # 返回完整 key（仅此刻可见）
+            result = dict(key_info)
+            result["api_key"] = api_key
+            return result
+
+    def validate_key(self, api_key: str) -> dict | None:
+        """验证 API Key，返回 key_info 或 None"""
+        if not api_key or not api_key.startswith(self.KEY_PREFIX):
+            return None
+
+        with self.lock:
+            store = self._read_store()
+            key_hash = self._hash(api_key)
+            info = store["keys"].get(key_hash)
+            if info is None:
+                return None
+            if info.get("revoked", False):
+                return None
+            if info.get("expires_at"):
+                try:
+                    expires = datetime.fromisoformat(info["expires_at"])
+                    if datetime.now() > expires:
+                        return None
+                except (ValueError, TypeError):
+                    pass
+            if info.get("max_requests", 0) > 0 and info.get("request_count", 0) >= info["max_requests"]:
+                return None
+
+            # 更新使用计数和时间
+            info["request_count"] = info.get("request_count", 0) + 1
+            info["last_used_at"] = datetime.now().isoformat()
+            self._write_store(store)
+
+            return info
+
+    def revoke_key(self, api_key_or_hash: str):
+        """撤销一个 API Key
+
+        接受完整 API Key 或其 SHA256 哈希值。
+        先尝试直接匹配 hash，再尝试 hash 输入后匹配。
+        """
+        with self.lock:
+            store = self._read_store()
+            # 支持两种输入：完整 Key（需要 hash）或已有 hash
+            if api_key_or_hash in store["keys"]:
+                key_hash = api_key_or_hash
+            else:
+                key_hash = self._hash(api_key_or_hash)
+                if key_hash not in store["keys"]:
+                    return False
+            store["keys"][key_hash]["revoked"] = True
+            self._write_store(store)
+            return True
+
+    def list_keys(self) -> list[dict]:
+        """列出所有 API Key（不包含完整 key）"""
+        with self.lock:
+            store = self._read_store()
+            return list(store["keys"].values())
+
+    # ── Admin password ──
+
+    def set_admin_password(self, password: str):
+        """设置 Admin 密码（SHA256 哈希存储）"""
+        self.ADMIN_PASSWORD_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self.ADMIN_PASSWORD_FILE.write_text(self._hash(password), encoding="utf-8")
+
+    def check_admin_password(self, password: str) -> bool:
+        """验证 Admin 密码"""
+        if not self.ADMIN_PASSWORD_FILE.exists():
+            # 首次启动没有密码，生成一个随机默认密码
+            default_pw = secrets.token_hex(8)
+            self.set_admin_password(default_pw)
+            print(f"\n  🔑 首次启动，Admin 默认密码: {default_pw}")
+            print(f"     请登录 /admin 后修改密码\n")
+            return password == default_pw
+
+        stored = self.ADMIN_PASSWORD_FILE.read_text(encoding="utf-8").strip()
+        return secrets.compare_digest(stored, self._hash(password))
+
+    @staticmethod
+    def _hash(s: str) -> str:
+        return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
 # ═══════════════════════════════════════════════════════
@@ -98,6 +256,8 @@ class TunerState:
 
 
 class RomanceState:
+    """单个用户的 Romance 游戏会话状态"""
+
     def __init__(self):
         self.lock = threading.Lock()
         self.engine = None
@@ -171,36 +331,141 @@ class RomanceState:
         return self.engine
 
     def to_dict(self) -> dict:
-        if self.engine is None:
-            return {"ready": False}
-        char = self.engine.character
-        sm = self.engine.state_machine
-        return {
-            "ready": True,
-            "character": {
-                "name": char.profile.name,
-                "affection": char.profile.affection_score,
-                "relationship": char.get_relationship_label(),
-                "personality": char.profile.personality_traits,
-                "background": char.profile.background,
-                "speaking_style": char.profile.speaking_style,
-            },
-            "current_scene": sm.current_scene.scene_id if sm.current_scene else "",
-            "scene_desc": sm.current_scene.description if sm.current_scene else "",
-            "turn_count": self.engine.turn_count,
-            "available_choices": [
-                {"id": c.choice_id, "text": c.text, "affection": c.affection_delta}
-                for c in sm.available_choices(self.engine.character.story_flags.unlocked_scenes)
-            ] if sm.current_scene else [],
-            "has_llm": self.llm is not None,
-        }
+        with self.lock:
+            if self.engine is None:
+                return {"ready": False}
+            char = self.engine.character
+            sm = self.engine.state
+            return {
+                "ready": True,
+                "character": {
+                    "name": char.profile.name,
+                    "affection": char.profile.affection_score,
+                    "relationship": char.get_relationship_label(),
+                    "personality": char.profile.personality_traits,
+                    "background": char.profile.background,
+                    "speaking_style": char.profile.speaking_style,
+                },
+                "current_scene": sm.current_scene.scene_id if sm.current_scene else "",
+                "scene_desc": sm.current_scene.description if sm.current_scene else "",
+                "turn_count": self.engine.turn_count,
+                "available_choices": [
+                    {"id": c.choice_id, "text": c.text, "affection": c.affection_delta}
+                    for c in sm.available_choices(set(self.engine.character.story_flags.unlocked_scenes))
+                ] if sm.current_scene else [],
+                "has_llm": self.llm is not None,
+            }
+
+
+class RomanceSessionManager:
+    """管理多用户 Romance 会话。每个 API Key 对应一个独立会话。"""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.sessions: dict[str, RomanceState] = {}  # key_hash → RomanceState
+
+    def get(self, key_hash: str) -> RomanceState:
+        with self.lock:
+            if key_hash not in self.sessions:
+                self.sessions[key_hash] = RomanceState()
+            return self.sessions[key_hash]
+
+    def remove(self, key_hash: str):
+        with self.lock:
+            self.sessions.pop(key_hash, None)
+
+    def list_active(self) -> list[dict]:
+        with self.lock:
+            result = []
+            for kh, state in self.sessions.items():
+                result.append({
+                    "key_prefix": kh[:12] + "..." if len(kh) > 12 else kh,
+                    "has_engine": state.engine is not None,
+                    "session_id": state.session_id,
+                    "message_count": len(state.chat_log),
+                    "consent": state.consent,
+                })
+            return result
 
 
 tuner_state = TunerState()
-romance_state = RomanceState()
+romance_sessions = RomanceSessionManager()
+api_key_manager = APIKeyManager()
 
 # HTML files loaded lazily
 _HTML_DIR = Path(__file__).parent
+
+
+# ═══════════════════════════════════════════════════════
+#  Auth helpers
+# ═══════════════════════════════════════════════════════
+
+ADMIN_SESSION_TOKENS: dict[str, float] = {}  # token → expiry_timestamp
+_admin_sessions_lock = threading.Lock()
+
+
+def _extract_api_key(handler: BaseHTTPRequestHandler) -> str | None:
+    """从请求中提取 API Key。先查 Header，再查 URL 参数。"""
+    # Header: X-API-Key
+    key = handler.headers.get("X-API-Key", "")
+    if key:
+        return key.strip()
+
+    # URL query: ?api_key=xxx
+    qs = parse_qs(urlparse(handler.path).query)
+    keys = qs.get("api_key", [])
+    if keys:
+        return keys[0].strip()
+
+    # Bearer token
+    auth = handler.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+
+    return None
+
+
+def _authenticate(handler: BaseHTTPRequestHandler) -> dict | None:
+    """验证请求。返回 key_info 或 None。"""
+    api_key = _extract_api_key(handler)
+    if not api_key:
+        return None
+    return api_key_manager.validate_key(api_key)
+
+
+def _check_admin(handler: BaseHTTPRequestHandler) -> bool:
+    """检查是否是 Admin 请求（通过 Admin Session Token）"""
+    cookies = handler.headers.get("Cookie", "")
+    token = ""
+    for part in cookies.replace(" ", "").split(";"):
+        if part.startswith("admin_token="):
+            token = part.split("=", 1)[1]
+            break
+
+    with _admin_sessions_lock:
+        if token in ADMIN_SESSION_TOKENS:
+            expiry = ADMIN_SESSION_TOKENS[token]
+            if time.time() < expiry:
+                return True
+            del ADMIN_SESSION_TOKENS[token]
+    return False
+
+
+def _create_admin_session() -> str:
+    token = secrets.token_hex(32)
+    with _admin_sessions_lock:
+        ADMIN_SESSION_TOKENS[token] = time.time() + 3600  # 1 小时有效
+    return token
+
+
+def _get_romance_state(handler: BaseHTTPRequestHandler) -> RomanceState:
+    """根据请求的 API Key 获取对应的 RomanceState"""
+    api_key = _extract_api_key(handler)
+    if api_key:
+        key_hash = api_key_manager._hash(api_key)
+        return romance_sessions.get(key_hash)
+    # 无 key 的本地请求使用默认会话
+    return romance_sessions.get("__local__")
 
 
 # ═══════════════════════════════════════════════════════
@@ -294,7 +559,6 @@ def run_training(data_path: str, model_name: str = "Qwen/Qwen2.5-7B-Instruct",
     from sentence_transformers import SentenceTransformer
 
     try:
-        # Load data
         raw = Path(data_path).read_text(encoding="utf-8").strip()
         data = json.loads(raw) if raw.startswith("[") else [json.loads(l) for l in raw.splitlines() if l.strip()]
         pairs = _extract_pairs(data)
@@ -307,7 +571,6 @@ def run_training(data_path: str, model_name: str = "Qwen/Qwen2.5-7B-Instruct",
 
         tuner_state.baseline_semantic, tuner_state.baseline_overlap = _run_baseline_eval(pairs, model_name)
 
-        # LoRA training
         from src.training.lora_trainer import LoRATrainer
 
         def on_progress(step, loss):
@@ -336,7 +599,6 @@ def run_training(data_path: str, model_name: str = "Qwen/Qwen2.5-7B-Instruct",
         tuner_state.set_running(total_est)
         trainer.train()
 
-        # Post-training eval
         tuner_state.message = "正在进行训练后评估..."
         bnb = BitsAndBytesConfig(
             load_in_4bit=True, bnb_4bit_compute_dtype="bfloat16",
@@ -423,11 +685,17 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    def _json(self, data, code=200):
+    def _json(self, data, code=200, extra_headers: dict | None = None):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Authorization")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
+        self.send_header("Access-Control-Allow-Credentials", "true")
+        if extra_headers:
+            for k, v in extra_headers.items():
+                self.send_header(k, v)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -455,8 +723,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Authorization")
+        self.send_header("Access-Control-Allow-Credentials", "true")
         self.end_headers()
 
     # ── Routing ──
@@ -465,17 +734,28 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         qs = parse_qs(urlparse(self.path).query)
 
+        # ── Static pages ──
         if path == "/" or path == "/tuner":
             self._serve_file("tuner.html")
         elif path == "/romance":
             self._serve_file("romance.html")
+        elif path == "/admin":
+            self._serve_file("admin.html")
+        elif path == "/client":
+            self._serve_file("client.html")
+
+        # ── Tuner API (no auth required for local use) ──
         elif path == "/api/tuner/status":
             self._json(tuner_state.to_dict())
         elif path == "/api/tuner/data/preview":
             n = int(qs.get("n", [10])[0])
             self._json({"samples": tuner_state.loaded_data[:n], "total": len(tuner_state.loaded_data)})
+
+        # ── Romance API (API key required) ──
         elif path == "/api/romance/state":
-            self._json(romance_state.to_dict())
+            state = _get_romance_state(self)
+            self._json(state.to_dict())
+
         elif path == "/api/romance/saves":
             saves = []
             sd = Path("data/saves")
@@ -483,6 +763,58 @@ class Handler(BaseHTTPRequestHandler):
                 for f in sorted(sd.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
                     saves.append({"name": f.stem, "mtime": datetime.fromtimestamp(f.stat().st_mtime).isoformat()})
             self._json({"saves": saves})
+
+        # ── Health / info ──
+        elif path == "/api/health":
+            self._json({
+                "status": "ok",
+                "version": "0.2.0",
+                "server_time": datetime.now().isoformat(),
+                "active_sessions": len(romance_sessions.list_active()),
+            })
+
+        elif path == "/api/server/info":
+            self._json({
+                "name": "NeuralEditor API Server",
+                "version": "0.2.0",
+                "endpoints": {
+                    "romance": "/romance",
+                    "admin": "/admin",
+                    "tuner": "/",
+                },
+                "auth_required": True,
+                "auth_header": "X-API-Key",
+            })
+
+        # ── Admin API ──
+        elif path == "/api/admin/keys":
+            if not _check_admin(self):
+                self._json({"error": "需要 Admin 登录"}, 401)
+                return
+            keys = api_key_manager.list_keys()
+            self._json({"keys": keys, "total": len(keys)})
+
+        elif path == "/api/admin/sessions":
+            if not _check_admin(self):
+                self._json({"error": "需要 Admin 登录"}, 401)
+                return
+            self._json({"sessions": romance_sessions.list_active()})
+
+        elif path == "/api/admin/check":
+            self._json({"authenticated": _check_admin(self)})
+
+        elif path == "/api/auth/status":
+            key_info = _authenticate(self)
+            if key_info:
+                self._json({
+                    "authenticated": True,
+                    "key_prefix": key_info["key_prefix"],
+                    "permissions": key_info["permissions"],
+                    "description": key_info["description"],
+                })
+            else:
+                self._json({"authenticated": False}, 401)
+
         else:
             self._json({"error": "not found"}, 404)
 
@@ -490,8 +822,75 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         body = self._read()
 
+        # ── Admin: login ──
+        if path == "/api/admin/login":
+            password = body.get("password", "")
+            if api_key_manager.check_admin_password(password):
+                token = _create_admin_session()
+                self._json({"ok": True, "message": "登录成功"}, 200,
+                          extra_headers={"Set-Cookie": f"admin_token={token}; Path=/; HttpOnly; SameSite=Lax"})
+            else:
+                self._json({"error": "密码错误"}, 403)
+
+        elif path == "/api/admin/logout":
+            self._json({"ok": True}, 200,
+                      extra_headers={"Set-Cookie": "admin_token=; Path=/; Max-Age=0"})
+
+        elif path == "/api/admin/password/change":
+            if not _check_admin(self):
+                self._json({"error": "需要 Admin 登录"}, 401)
+                return
+            old_pw = body.get("old_password", "")
+            new_pw = body.get("new_password", "")
+            if not new_pw or len(new_pw) < 4:
+                self._json({"error": "新密码至少 4 位"}, 400)
+                return
+            if not api_key_manager.check_admin_password(old_pw):
+                self._json({"error": "旧密码错误"}, 403)
+                return
+            api_key_manager.set_admin_password(new_pw)
+            self._json({"ok": True, "message": "密码已更新"})
+
+        # ── Admin: key management ──
+        elif path == "/api/admin/keys/generate":
+            if not _check_admin(self):
+                self._json({"error": "需要 Admin 登录"}, 401)
+                return
+            key_data = api_key_manager.generate_key(
+                description=body.get("description", ""),
+                max_requests=int(body.get("max_requests", 0)),
+                expires_days=int(body.get("expires_days", 0)),
+                permissions=body.get("permissions", ["romance"]),
+            )
+            self._json(key_data)
+
+        elif path == "/api/admin/keys/revoke":
+            if not _check_admin(self):
+                self._json({"error": "需要 Admin 登录"}, 401)
+                return
+            key_to_revoke = body.get("key_prefix", "") or body.get("api_key", "")
+            if not key_to_revoke:
+                self._json({"error": "请提供 key_prefix 或 api_key"}, 400)
+                return
+            ok = api_key_manager.revoke_key(key_to_revoke)
+            self._json({"ok": ok, "message": "已撤销" if ok else "未找到该 Key"})
+
+        # ── Auth: verify key (for client use) ──
+        elif path == "/api/auth/verify":
+            api_key = body.get("api_key", "")
+            info = api_key_manager.validate_key(api_key)
+            if info:
+                self._json({
+                    "valid": True,
+                    "key_prefix": info["key_prefix"],
+                    "permissions": info["permissions"],
+                    "description": info["description"],
+                })
+            else:
+                self._json({"valid": False, "error": "无效或过期的 API Key"}, 401)
+
         # ── Tuner: data ──
-        if path == "/api/tuner/data/load":
+        elif path == "/api/tuner/data/load":
             data, msg = _load_data_file(body.get("path", ""))
             self._json({"ok": len(data) > 0, "message": msg, "count": len(data)})
 
@@ -635,16 +1034,18 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"error": str(e)}, 500)
 
-        # ── Romance: new game ──
+        # ── Romance: new game (auth optional, local fallback) ──
         elif path == "/api/romance/new":
+            state = _get_romance_state(self)
             character_path = body.get("character", "config/characters/default.yaml")
             model_path = body.get("model_path", "")
-            romance_state.init_engine(character_path, model_path)
-            self._json(romance_state.to_dict())
+            state.init_engine(character_path, model_path)
+            self._json(state.to_dict())
 
         # ── Romance: chat ──
         elif path == "/api/romance/chat":
-            if romance_state.engine is None:
+            state = _get_romance_state(self)
+            if state.engine is None:
                 self._json({"error": "游戏未初始化"}, 400)
                 return
             msg = body.get("message", "").strip()
@@ -652,22 +1053,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "消息为空"}, 400)
                 return
 
-            romance_state.log_message("user", msg)
-            eng = romance_state.engine
+            state.log_message("user", msg)
+            eng = state.engine
             ctx = eng.process_player_input(msg)
 
-            if romance_state.llm:
+            if state.llm:
                 from src.main import build_messages
                 sp = eng.character.format_system_prompt(
-                    scene=eng.state_machine.current_scene.description if eng.state_machine.current_scene else "日常"
+                    scene=eng.state.current_scene.description if eng.state.current_scene else "日常"
                 )
                 messages = build_messages(ctx, sp)
-                response = romance_state.llm.chat(messages)
+                response = state.llm.chat(messages)
             else:
                 response = f"*{eng.character.profile.name}微微一笑* 嗯，我在听呢..."
 
             eng.record_assistant_response(response)
-            romance_state.log_message("assistant", response)
+            state.log_message("assistant", response)
 
             self._json({
                 "response": response,
@@ -676,27 +1077,28 @@ class Handler(BaseHTTPRequestHandler):
                     "affection": eng.character.profile.affection_score,
                     "relationship": eng.character.get_relationship_label(),
                 },
-                "scene": eng.state_machine.current_scene.scene_id if eng.state_machine.current_scene else "",
+                "scene": eng.state.current_scene.scene_id if eng.state.current_scene else "",
                 "choices": [
                     {"id": c.choice_id, "text": c.text, "affection": c.affection_delta}
-                    for c in eng.state_machine.available_choices(eng.character.story_flags.unlocked_scenes)
-                ] if eng.state_machine.current_scene else [],
+                    for c in eng.state.available_choices(set(eng.character.story_flags.unlocked_scenes))
+                ] if eng.state.current_scene else [],
             })
 
         # ── Romance: choice ──
         elif path == "/api/romance/choice":
-            if romance_state.engine is None:
+            state = _get_romance_state(self)
+            if state.engine is None:
                 self._json({"error": "游戏未初始化"}, 400)
                 return
             choice_id = body.get("choice_id", "")
-            sm = romance_state.engine.state_machine
-            avail = sm.available_choices(romance_state.engine.character.story_flags.unlocked_scenes)
+            sm = state.engine.state
+            avail = sm.available_choices(set(state.engine.character.story_flags.unlocked_scenes))
             chosen = next((c for c in avail if c.choice_id == choice_id), None)
             if chosen is None:
                 self._json({"error": f"无效选择: {choice_id}"}, 400)
                 return
-            romance_state.engine.apply_choice(chosen)
-            romance_state.log_choice(choice_id, chosen.text, chosen.affection_delta)
+            state.engine.apply_choice(chosen)
+            state.log_choice(choice_id, chosen.text, chosen.affection_delta)
             self._json({
                 "ok": True,
                 "affection_delta": chosen.affection_delta,
@@ -704,42 +1106,46 @@ class Handler(BaseHTTPRequestHandler):
                 "scene_desc": sm.current_scene.description if sm.current_scene else "",
                 "choices": [
                     {"id": c.choice_id, "text": c.text, "affection": c.affection_delta}
-                    for c in sm.available_choices(romance_state.engine.character.story_flags.unlocked_scenes)
+                    for c in sm.available_choices(set(state.engine.character.story_flags.unlocked_scenes))
                 ] if sm.current_scene else [],
                 "character": {
-                    "name": romance_state.engine.character.profile.name,
-                    "affection": romance_state.engine.character.profile.affection_score,
-                    "relationship": romance_state.engine.character.get_relationship_label(),
+                    "name": state.engine.character.profile.name,
+                    "affection": state.engine.character.profile.affection_score,
+                    "relationship": state.engine.character.get_relationship_label(),
                 },
             })
 
         # ── Romance: save/load ──
         elif path == "/api/romance/save":
-            if romance_state.engine is None:
+            state = _get_romance_state(self)
+            if state.engine is None:
                 self._json({"error": "游戏未初始化"}, 400)
                 return
             slot = body.get("slot", "auto")
-            romance_state.engine.save(slot)
+            state.engine.save(slot)
             self._json({"ok": True, "slot": slot})
 
         elif path == "/api/romance/load":
-            if romance_state.engine is None:
-                romance_state.init_engine()
+            state = _get_romance_state(self)
+            if state.engine is None:
+                state.init_engine()
             slot = body.get("slot", "auto")
-            ok = romance_state.engine.load(slot)
+            ok = state.engine.load(slot)
             if ok:
-                self._json({"ok": True, "state": romance_state.to_dict()})
+                self._json({"ok": True, "state": state.to_dict()})
             else:
                 self._json({"error": f"存档不存在: {slot}"}, 404)
 
         # ── Romance: session management ──
         elif path == "/api/romance/session/start":
+            state = _get_romance_state(self)
             consent = body.get("consent", False)
-            romance_state.init_session(consent)
-            self._json({"ok": True, "session_id": romance_state.session_id, "consent": consent})
+            state.init_session(consent)
+            self._json({"ok": True, "session_id": state.session_id, "consent": consent})
 
         elif path == "/api/romance/session/save":
-            sid = romance_state.session_id
+            state = _get_romance_state(self)
+            sid = state.session_id
             if not sid:
                 self._json({"error": "没有活跃会话"}, 400)
                 return
@@ -747,19 +1153,20 @@ class Handler(BaseHTTPRequestHandler):
             session_dir.mkdir(parents=True, exist_ok=True)
             session_data = {
                 "session_id": sid,
-                "start_time": romance_state.session_start,
+                "start_time": state.session_start,
                 "end_time": datetime.now().isoformat(),
-                "consent": romance_state.consent,
-                "character": romance_state.to_dict().get("character", {}),
-                "messages": romance_state.chat_log,
-                "choices": romance_state.choices_log,
+                "consent": state.consent,
+                "character": state.to_dict().get("character", {}),
+                "messages": state.chat_log,
+                "choices": state.choices_log,
             }
             (session_dir / f"{sid}.json").write_text(
                 json.dumps(session_data, ensure_ascii=False, indent=2), encoding="utf-8")
             self._json({"ok": True, "session_id": sid})
 
         elif path == "/api/romance/session/feedback":
-            sid = body.get("session_id", romance_state.session_id)
+            state = _get_romance_state(self)
+            sid = body.get("session_id", state.session_id)
             if not sid:
                 self._json({"error": "没有活跃会话"}, 400)
                 return
@@ -769,15 +1176,14 @@ class Handler(BaseHTTPRequestHandler):
             fb_dir = Path("data/feedback")
             fb_dir.mkdir(parents=True, exist_ok=True)
 
-            # Save session data to feedback folder too (with rating)
             fb_data = {
                 "session_id": sid,
                 "submitted_at": datetime.now().isoformat(),
                 "rating": rating,
                 "feedback": feedback_text,
-                "messages": romance_state.chat_log,
-                "choices": romance_state.choices_log,
-                "character": romance_state.to_dict().get("character", {}),
+                "messages": state.chat_log,
+                "choices": state.choices_log,
+                "character": state.to_dict().get("character", {}),
             }
             (fb_dir / f"{sid}.json").write_text(
                 json.dumps(fb_data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -807,12 +1213,25 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     import signal
+    import io
+    # Fix emoji encoding on Windows
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
     port = 8765
-    server = HTTPServer(("0.0.0.0", port), Handler)
-    print(f"\n  🧠 NeuralEditor API Server")
-    print(f"  🔧 微调端: http://localhost:{port}/")
-    print(f"  💕 恋爱端: http://localhost:{port}/romance")
-    print(f"  ⏹  按 Ctrl+C 停止\n")
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    banner = (
+        f"\n  [*] NeuralEditor API Server v0.2\n"
+        f"  ----------------------------------------\n"
+        f"  Tuner:    http://localhost:{port}/\n"
+        f"  Romance:  http://localhost:{port}/romance\n"
+        f"  Client:   http://localhost:{port}/client\n"
+        f"  Admin:    http://localhost:{port}/admin\n"
+        f"  ----------------------------------------\n"
+        f"  API:  Header X-API-Key or ?api_key=xxx\n"
+        f"  Stop: Ctrl+C\n"
+    )
+    print(banner)
 
     def _sigint(signum, frame):
         print("\n  服务器已停止。")

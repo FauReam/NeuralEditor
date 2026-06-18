@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeuralEditor Admin — API Key 管理</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f5f8;--surface:#fff;--border:#e0e0e8;
+  --text:#2a2a35;--dim:#888;--accent:#5b5fe3;--danger:#e05050;
+  --green:#3ca374;--warn:#e89830;
+}
+body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 24px;display:flex;align-items:center;gap:16px}
+header h1{font-size:1.2em;color:var(--accent)}
+header .spacer{flex:1}
+header .status-dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
+header .status-text{font-size:.82em;color:var(--dim)}
+main{max-width:960px;margin:24px auto;padding:0 24px}
+.card{background:var(--surface);border-radius:12px;border:1px solid var(--border);margin-bottom:20px;overflow:hidden}
+.card-header{padding:16px 20px;border-bottom:1px solid var(--border);font-weight:600;font-size:.95em;display:flex;align-items:center;gap:8px}
+.card-body{padding:20px}
+
+/* Login */
+.login-box{max-width:400px;margin:80px auto}
+.login-box input{width:100%;padding:12px 16px;border:1.5px solid var(--border);border-radius:8px;font-size:.95em;outline:none;margin-bottom:12px;font-family:inherit}
+.login-box input:focus{border-color:var(--accent)}
+.login-box button{width:100%;padding:12px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-size:.95em;font-weight:600;cursor:pointer;font-family:inherit}
+
+/* Key generation form */
+.form-row{display:flex;gap:12px;flex-wrap:wrap}
+.form-row .field{flex:1;min-width:140px}
+.field label{display:block;font-size:.8em;color:var(--dim);margin-bottom:4px;font-weight:600}
+.field input,.field select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:.88em;outline:none;font-family:inherit}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border:none;border-radius:8px;font-size:.88em;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{opacity:.9}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-outline{background:var(--bg);border:1.5px solid var(--border);color:var(--text)}
+
+/* Key list */
+.key-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.key-item:last-child{border-bottom:none}
+.key-prefix{font-family:monospace;font-size:.88em;color:var(--accent);font-weight:600;min-width:140px}
+.key-desc{flex:1;font-size:.85em;color:var(--dim);min-width:120px}
+.key-meta{display:flex;gap:12px;font-size:.78em;color:var(--dim);align-items:center}
+.badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:.75em;font-weight:600}
+.badge-active{background:#e8f5e9;color:var(--green)}
+.badge-revoked{background:#fff0f0;color:var(--danger)}
+.badge-expired{background:#fff8e8;color:var(--warn)}
+
+/* New key display */
+.key-reveal{background:#f0f4ff;border:2px dashed var(--accent);border-radius:8px;padding:16px;margin:12px 0;text-align:center}
+.key-reveal .full-key{font-family:monospace;font-size:1.1em;color:var(--accent);word-break:break-all;user-select:all;font-weight:600}
+.key-reveal .warn{font-size:.8em;color:var(--danger);margin-top:8px}
+.copy-btn{padding:4px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);cursor:pointer;font-size:.8em;font-family:inherit}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;background:#2a2a35;color:#fff;padding:12px 20px;border-radius:10px;font-size:.85em;opacity:0;transform:translateY(10px);transition:all .3s ease;z-index:1000}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.error{background:var(--danger)}
+
+/* Tabs */
+.tabs{display:flex;gap:0;border-bottom:2px solid var(--border)}
+.tab{padding:10px 20px;cursor:pointer;font-size:.88em;color:var(--dim);border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;font-family:inherit;background:none;border-top:none;border-left:none;border-right:none}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Login -->
+<div id="login-page" class="login-box hidden">
+  <div class="card" style="margin-top:40px">
+    <div class="card-header">🔐 Admin 登录</div>
+    <div class="card-body">
+      <input id="login-password" type="password" placeholder="Admin 密码" onkeydown="if(event.key==='Enter')login()">
+      <button onclick="login()">登录</button>
+      <p style="font-size:.8em;color:var(--dim);margin-top:8px;text-align:center">首次启动时终端会打印默认密码</p>
+    </div>
+  </div>
+</div>
+
+<!-- Main dashboard -->
+<div id="dashboard" class="hidden">
+<header>
+  <h1>🛡️ NeuralEditor Admin</h1>
+  <div class="spacer"></div>
+  <span class="status-dot" id="server-dot"></span>
+  <span class="status-text" id="server-status">检查中...</span>
+  <button class="btn btn-outline" onclick="logout()" style="margin-left:12px">退出</button>
+</header>
+
+<main>
+  <!-- Stats -->
+  <div class="card">
+    <div class="card-header">📊 服务器状态</div>
+    <div class="card-body" style="display:flex;gap:24px;flex-wrap:wrap">
+      <div><span style="color:var(--dim);font-size:.8em">活跃会话</span><br><span style="font-size:1.4em;font-weight:700" id="stat-sessions">-</span></div>
+      <div><span style="color:var(--dim);font-size:.8em">有效 Key 数量</span><br><span style="font-size:1.4em;font-weight:700" id="stat-keys">-</span></div>
+      <div><span style="color:var(--dim);font-size:.8em">服务器版本</span><br><span style="font-size:1.4em;font-weight:700">v0.2</span></div>
+      <div><span style="color:var(--dim);font-size:.8em">端口</span><br><span style="font-size:1.4em;font-weight:700">8765</span></div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('keys')">🔑 API Key 管理</button>
+      <button class="tab" onclick="switchTab('sessions')">👥 活跃会话</button>
+      <button class="tab" onclick="switchTab('settings')">⚙️ 设置</button>
+    </div>
+
+    <!-- Keys tab -->
+    <div class="tab-content active" id="tab-keys">
+      <div class="card-header">签发新 Key</div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="field" style="flex:2">
+            <label>描述（可选）</label>
+            <input id="new-key-desc" placeholder="如: 给小李的测试 Key">
+          </div>
+          <div class="field">
+            <label>过期天数（0=永不过期）</label>
+            <input id="new-key-expires" type="number" value="30" min="0">
+          </div>
+          <div class="field">
+            <label>请求次数上限（0=不限）</label>
+            <input id="new-key-max-req" type="number" value="0" min="0">
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end">
+            <button class="btn btn-primary" onclick="generateKey()" style="width:100%">✨ 生成 Key</button>
+          </div>
+        </div>
+        <div id="key-reveal-area" class="hidden">
+          <div class="key-reveal">
+            <div style="font-size:.85em;color:var(--dim);margin-bottom:4px">🎉 新 Key 已生成（仅显示一次！）</div>
+            <div class="full-key" id="revealed-key"></div>
+            <button class="copy-btn" onclick="copyKey()">📋 复制</button>
+            <div class="warn">⚠️ 请立即复制并安全保存，刷新后将不可见</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-header">已有 Key 列表</div>
+      <div class="card-body" id="key-list">
+        <p style="color:var(--dim);font-size:.85em">加载中...</p>
+      </div>
+    </div>
+
+    <!-- Sessions tab -->
+    <div class="tab-content" id="tab-sessions">
+      <div class="card-header">活跃会话</div>
+      <div class="card-body" id="sessions-list">
+        <p style="color:var(--dim);font-size:.85em">加载中...</p>
+      </div>
+    </div>
+
+    <!-- Settings tab -->
+    <div class="tab-content" id="tab-settings">
+      <div class="card-header">修改 Admin 密码</div>
+      <div class="card-body" style="max-width:400px">
+        <div class="field" style="margin-bottom:12px">
+          <label>旧密码</label>
+          <input id="old-pw" type="password" placeholder="当前密码">
+        </div>
+        <div class="field" style="margin-bottom:12px">
+          <label>新密码</label>
+          <input id="new-pw" type="password" placeholder="新密码（至少 4 位）">
+        </div>
+        <button class="btn btn-primary" onclick="changePassword()">更新密码</button>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+
+<script>
+let adminAuthed = false;
+
+function $(id) { return document.getElementById(id); }
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(path, opts).then(r => r.json());
+}
+
+function showToast(msg, isError) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ═══════════════════ Login ═══════════════════
+
+async function checkAuth() {
+  const res = await api('GET', '/api/admin/check');
+  if (res.authenticated) {
+    adminAuthed = true;
+    showDashboard();
+  } else {
+    showLogin();
+  }
+}
+
+function showLogin() {
+  $('login-page').classList.remove('hidden');
+  $('dashboard').classList.add('hidden');
+}
+
+function showDashboard() {
+  $('login-page').classList.add('hidden');
+  $('dashboard').classList.remove('hidden');
+  loadStats();
+  loadKeys();
+}
+
+async function login() {
+  const pw = $('login-password').value;
+  if (!pw) { showToast('请输入密码', true); return; }
+  const res = await api('POST', '/api/admin/login', { password: pw });
+  if (res.ok) {
+    adminAuthed = true;
+    showDashboard();
+    showToast('登录成功');
+    $('login-password').value = '';
+  } else {
+    showToast(res.error || '密码错误', true);
+  }
+}
+
+async function logout() {
+  await api('POST', '/api/admin/logout');
+  adminAuthed = false;
+  showLogin();
+  showToast('已退出');
+}
+
+// ═══════════════════ Dashboard ═══════════════════
+
+async function loadStats() {
+  try {
+    const [keysRes, sessionsRes, healthRes] = await Promise.all([
+      api('GET', '/api/admin/keys'),
+      api('GET', '/api/admin/sessions'),
+      api('GET', '/api/health'),
+    ]);
+    $('stat-keys').textContent = (keysRes.keys || []).filter(k => !k.revoked).length;
+    $('stat-sessions').textContent = (sessionsRes.sessions || []).length;
+    $('server-dot').style.background = healthRes.status === 'ok' ? 'var(--green)' : 'var(--danger)';
+    $('server-status').textContent = healthRes.status === 'ok' ? '运行中' : '离线';
+  } catch(e) {
+    $('server-dot').style.background = 'var(--danger)';
+    $('server-status').textContent = '离线';
+  }
+}
+
+// ═══════════════════ Key management ═══════════════════
+
+async function loadKeys() {
+  const res = await api('GET', '/api/admin/keys');
+  if (!res.keys) return;
+  const list = $('key-list');
+  const validKeys = res.keys.filter(k => !k.revoked);
+  const revokedKeys = res.keys.filter(k => k.revoked);
+
+  let html = '';
+  if (validKeys.length === 0 && revokedKeys.length === 0) {
+    html = '<p style="color:var(--dim);font-size:.85em">暂无 API Key</p>';
+  }
+
+  if (validKeys.length > 0) {
+    html += '<div style="margin-bottom:16px"><strong>✅ 有效 Key</strong></div>';
+    validKeys.forEach(k => {
+      const expired = k.expires_at && new Date(k.expires_at) < new Date();
+      html += renderKeyItem(k, expired);
+    });
+  }
+  if (revokedKeys.length > 0) {
+    html += '<div style="margin:16px 0"><strong style="color:var(--danger)">🚫 已撤销</strong></div>';
+    revokedKeys.forEach(k => {
+      html += renderKeyItem(k, false);
+    });
+  }
+  list.innerHTML = html;
+}
+
+function renderKeyItem(k, expired) {
+  let badge = '<span class="badge badge-active">有效</span>';
+  if (k.revoked) badge = '<span class="badge badge-revoked">已撤销</span>';
+  else if (expired) badge = '<span class="badge badge-expired">已过期</span>';
+
+  const expiresText = k.expires_at
+    ? new Date(k.expires_at).toLocaleDateString('zh-CN')
+    : '永不过期';
+  const lastUsed = k.last_used_at
+    ? new Date(k.last_used_at).toLocaleString('zh-CN')
+    : '从未使用';
+
+  return `<div class="key-item">
+    <span class="key-prefix">${k.key_prefix}</span>
+    <span class="key-desc">${k.description || '-'}</span>
+    <span class="key-meta">
+      ${badge}
+      <span>📅 ${expiresText}</span>
+      <span>📊 ${k.request_count}${k.max_requests ? '/' + k.max_requests : ''}</span>
+      <span>🕐 ${lastUsed}</span>
+    </span>
+    ${!k.revoked ? `<button class="btn btn-danger" style="padding:4px 12px;font-size:.78em" onclick="revokeKey('${k.key_prefix}')">撤销</button>` : ''}
+  </div>`;
+}
+
+async function generateKey() {
+  const desc = $('new-key-desc').value.trim();
+  const expiresDays = parseInt($('new-key-expires').value) || 0;
+  const maxReq = parseInt($('new-key-max-req').value) || 0;
+
+  const res = await api('POST', '/api/admin/keys/generate', {
+    description: desc,
+    expires_days: expiresDays,
+    max_requests: maxReq,
+  });
+  if (res.api_key) {
+    $('key-reveal-area').classList.remove('hidden');
+    $('revealed-key').textContent = res.api_key;
+    showToast('Key 已生成！请立即复制');
+    loadKeys();
+    loadStats();
+  } else if (res.error) {
+    showToast(res.error, true);
+  }
+}
+
+async function revokeKey(prefix) {
+  if (!confirm(`确定要撤销 Key "${prefix}" 吗？`)) return;
+  const res = await api('POST', '/api/admin/keys/revoke', { key_prefix: prefix });
+  if (res.ok) {
+    showToast('已撤销');
+    loadKeys();
+    loadStats();
+  } else {
+    showToast(res.message || '操作失败', true);
+  }
+}
+
+function copyKey() {
+  const key = $('revealed-key').textContent;
+  navigator.clipboard.writeText(key).then(() => showToast('已复制到剪贴板'));
+}
+
+// ═══════════════════ Sessions ═══════════════════
+
+async function loadSessions() {
+  const res = await api('GET', '/api/admin/sessions');
+  if (!res.sessions) return;
+  const list = $('sessions-list');
+  if (res.sessions.length === 0) {
+    list.innerHTML = '<p style="color:var(--dim);font-size:.85em">暂无活跃会话</p>';
+    return;
+  }
+  list.innerHTML = res.sessions.map(s =>
+    `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:.88em">
+      <span style="font-family:monospace;color:var(--accent)">${s.key_prefix}</span>
+      <span style="margin-left:12px;color:var(--dim)">会话: ${s.session_id || '-'}</span>
+      <span style="margin-left:12px;color:var(--dim)">消息: ${s.message_count}</span>
+      <span style="margin-left:12px">${s.has_engine ? '✅ 游戏中' : '⏳ 未开始'}</span>
+    </div>`
+  ).join('');
+}
+
+// ═══════════════════ Settings ═══════════════════
+
+async function changePassword() {
+  const oldPw = $('old-pw').value;
+  const newPw = $('new-pw').value;
+  if (!oldPw || !newPw) { showToast('请填写旧密码和新密码', true); return; }
+  if (newPw.length < 4) { showToast('新密码至少 4 位', true); return; }
+  const res = await api('POST', '/api/admin/password/change', { old_password: oldPw, new_password: newPw });
+  if (res.ok) {
+    showToast('密码已更新');
+    $('old-pw').value = '';
+    $('new-pw').value = '';
+  } else {
+    showToast(res.error || '修改失败', true);
+  }
+}
+
+// ═══════════════════ Tabs ═══════════════════
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelector(`.tab[onclick="switchTab('${name}')"]`).classList.add('active');
+  $(`tab-${name}`).classList.add('active');
+  if (name === 'sessions') loadSessions();
+  if (name === 'keys') loadKeys();
+}
+
+// ═══════════════════ Init ═══════════════════
+
+checkAuth();
+
+// Auto-refresh sessions
+setInterval(() => {
+  if (adminAuthed) loadStats();
+}, 30000);
+</script>
+</body>
+</html>
