@@ -316,6 +316,7 @@ async function makeChoice(cid) {
   try {
     const res = await callApi('POST', '/api/romance/choice', { choice_id: cid });
     if (res.ok) {
+      if (res.response) addMsg('assistant', res.response);
       if (res.affection_delta) addMsg('system', `好感度 ${res.affection_delta > 0 ? '+' : ''}${res.affection_delta}`);
       if (res.new_scene) $('scene-desc').textContent = res.scene_desc || res.new_scene;
       updateCharUI(res.character);

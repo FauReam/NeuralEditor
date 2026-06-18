@@ -1,4 +1,6 @@
-character_id: char_default
+﻿character_id: char_default
+# 
+model_path: models/Qwen2.5-7B-Instruct
 profile:
   name: 小棠
   age: 20

@@ -1,7 +1,8 @@
-"""Local LLM inference with 4-bit quantization, CUDA-first."""
+﻿"""Local LLM inference with 4-bit quantization, CUDA-first."""
 
 import gc
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,7 @@ class LLMEngine:
         self.tokenizer: Any = None
         self.device_type, self._compute_dtype = _detect_device()
         self._attention = _pick_attention()
+        self._inference_lock = threading.Lock()
 
         self._load()
 
@@ -115,7 +117,7 @@ class LLMEngine:
 
         # CUDA path — use device_map="auto" for multi-GPU or single-GPU
         if self.device_type == "cuda":
-            vram_gb = torch.cuda.get_device_properties(0).total_mem / 1024**3
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
             print(f"CUDA: {torch.cuda.get_device_name(0)} ({vram_gb:.1f} GB VRAM)")
             print(f"    attention: {self._attention}   compute dtype: {compute}")
 
@@ -156,7 +158,7 @@ class LLMEngine:
         if self.device_type == "cuda":
             allocated = torch.cuda.memory_allocated() / 1024**3
             reserved = torch.cuda.memory_reserved() / 1024**3
-            print(f"    VRAM: allocated={allocated:.1f} GB  reserved={reserved:.1f} GB")
+            print(f"    VRAM: allocated={allocated:.1f} GB  reserved={reserved:.1f} GB", flush=True)
 
     def _truncate_messages(
         self,
@@ -234,8 +236,9 @@ class LLMEngine:
             # Streaming requires a reader thread — not implemented in this synchronous path.
             # For real streaming use, call chat() inside a threading wrapper.
 
-        with torch.no_grad():
-            outputs = self.model.generate(**inputs, **generate_kwargs)
+        with self._inference_lock:
+            with torch.no_grad():
+                outputs = self.model.generate(**inputs, **generate_kwargs)
 
         response_ids = outputs[0][input_len:]
         response = self.tokenizer.decode(response_ids, skip_special_tokens=True)

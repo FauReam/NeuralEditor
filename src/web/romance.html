@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -293,13 +293,7 @@ async function verifyApiKey(key) {
   }
 }
 
-async function api(method, path, body) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['X-API-Key'] = apiKey;
-  const opts = { method, headers };
-  if (body) opts.body = JSON.stringify(body);
-  return fetch(path, opts).then(r => r.json());
-}
+async function api(method, path, body) { try { const r = await fetch(path, { method, headers: Object.assign({"Content-Type":"application/json"}, apiKey?{"X-API-Key":apiKey}:{}), body: body?JSON.stringify(body):undefined }); if (!r.ok) { const txt = await r.text().catch(()=>""""); throw new Error("HTTP "+r.status+": "+txt); } return await r.json(); } catch(e) { console.error("API error:", method, path, e.message); return { error: e.message||"Unknown Error" }; } } // orig:
 
 function esc(s) {
   const d = document.createElement('div');
@@ -441,6 +435,7 @@ async function makeChoice(choiceId) {
   addMsg('system', '你做出了选择...');
   const res = await api('POST', '/api/romance/choice', { choice_id: choiceId });
   if (res.ok) {
+    if (res.response) addMsg('assistant', res.response);
     if (res.affection_delta) {
       addMsg('system', `好感度 ${res.affection_delta > 0 ? '+' : ''}${res.affection_delta}`);
     }

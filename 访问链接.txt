@@ -1,0 +1,6 @@
+客户端直连: https://lucy-satellite-pulling-roommates.trycloudflare.com/client?api_key=ne_3569eab26a3e3555260887453327b16f102991625d01f32d
+管理后台: https://lucy-satellite-pulling-roommates.trycloudflare.com/admin
+Admin密码: admin123
+角色扮演: https://lucy-satellite-pulling-roommates.trycloudflare.com/romance
+微调端: https://lucy-satellite-pulling-roommates.trycloudflare.com/
+API Key: ne_3569eab26a3e3555260887453327b16f102991625d01f32d

@@ -41,7 +41,11 @@ class MemorySystem:
         if self._chroma_client is not None:
             return
 
-        self._embedder = SentenceTransformer(self._embedding_model_name)
+        try:
+            self._embedder = SentenceTransformer(self._embedding_model_name, device="cpu")
+        except Exception as e:
+            print(f"  [!] Embedding 模型加载失败（向量记忆不可用）: {e}")
+            self._embedder = None
 
         Path(self._vector_db_path).parent.mkdir(parents=True, exist_ok=True)
         self._chroma_client = chromadb.Client(
@@ -68,6 +72,8 @@ class MemorySystem:
         self._init_vector_db()
 
         mid = memory_id or str(uuid.uuid4())
+        if self._embedder is None:
+            return
         embedding = self._embedder.encode(text).tolist()
         self._collection.add(
             ids=[mid],
@@ -81,6 +87,8 @@ class MemorySystem:
         if not CHROMA_AVAILABLE or self._collection is None:
             return []
 
+        if self._embedder is None:
+            return []
         embedding = self._embedder.encode(query).tolist()
         results = self._collection.query(
             query_embeddings=[embedding],

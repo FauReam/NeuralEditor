@@ -84,3 +84,9 @@ ngrok.exe
 
 # Test outputs
 data/_test_*.py
+
+# Tunnel binary
+cloudflared.exe
+
+# Sentinel log
+__sentinel__.log

@@ -11,10 +11,12 @@
 """
 
 import hashlib
+import io
 import json
 import os
 import re
 import secrets
+import signal
 import sys
 import threading
 import time
@@ -26,6 +28,8 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from src.utils.config_loader import load_yaml
 
 
 # ═══════════════════════════════════════════════════════
@@ -322,12 +326,9 @@ class RomanceState:
         scenes = load_scenes("config/scenes/chapter1.yaml")
         self.engine.init_scenes(scenes)
 
-        if model_path:
-            try:
-                from src.models.llm_engine import LLMEngine
-                self.llm = LLMEngine(model_path=model_path)
-            except Exception:
-                self.llm = None
+        # use shared LLM (pre-loaded at server startup)
+        with _shared_llm_lock:
+            self.llm = _shared_llm
         return self.engine
 
     def to_dict(self) -> dict:
@@ -764,6 +765,27 @@ class Handler(BaseHTTPRequestHandler):
                     saves.append({"name": f.stem, "mtime": datetime.fromtimestamp(f.stat().st_mtime).isoformat()})
             self._json({"saves": saves})
 
+        elif path == "/api/romance/characters":
+            chars = []
+            cd = Path("config/characters")
+            if cd.exists():
+                for yf in sorted(cd.glob("*.yaml")):
+                    try:
+                        data = load_yaml(yf)
+                        profile = data.get("profile", {})
+                        chars.append({
+                            "id": data.get("character_id", yf.stem),
+                            "path": str(yf),
+                            "name": profile.get("name", yf.stem),
+                            "personality": profile.get("personality_traits", []),
+                            "background": profile.get("background", ""),
+                            "model_path": data.get("model_path", ""),
+                            "model_display": Path(data.get("model_path", "")).name if data.get("model_path") else "预设回复",
+                        })
+                    except Exception:
+                        pass
+            self._json({"characters": chars})
+
         # ── Health / info ──
         elif path == "/api/health":
             self._json({
@@ -819,6 +841,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def do_POST(self):
+        try:
+            self._do_post_impl()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            try:
+                self._json({"error": f"服务器内部错误: {e}"}, 500)
+            except Exception:
+                pass
+
+    def _do_post_impl(self):
         path = urlparse(self.path).path
         body = self._read()
 
@@ -1037,10 +1070,30 @@ class Handler(BaseHTTPRequestHandler):
         # ── Romance: new game (auth optional, local fallback) ──
         elif path == "/api/romance/new":
             state = _get_romance_state(self)
-            character_path = body.get("character", "config/characters/default.yaml")
-            model_path = body.get("model_path", "")
-            state.init_engine(character_path, model_path)
-            self._json(state.to_dict())
+            # WORKAROUND: 以下 with open(...) 包装器经验证可防止 CUDA 崩溃
+            # 移除会导致进程在 init_engine 后无声退出（C 层 crash，无 traceback）
+            with open("__sentinel__.log", "a") as _sentinel:
+                try:
+                    character_path = body.get("character", "config/characters/default.yaml")
+                    # 优先从角色 YAML 读取绑定的 model_path，角色-模型绑定不可由用户更改
+                    model_path = body.get("model_path", "")
+                    try:
+                        char_data = load_yaml(character_path)
+                        bound_model = char_data.get("model_path", "")
+                        if bound_model:
+                            model_path = bound_model
+                    except Exception:
+                        pass
+                    state.init_engine(character_path, model_path)
+                    self._json(state.to_dict())
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    try:
+                        self._json({"error": f"初始化失败: {e}"}, 500)
+                    except Exception:
+                        pass
+            return
 
         # ── Romance: chat ──
         elif path == "/api/romance/chat":
@@ -1063,7 +1116,12 @@ class Handler(BaseHTTPRequestHandler):
                     scene=eng.state.current_scene.description if eng.state.current_scene else "日常"
                 )
                 messages = build_messages(ctx, sp)
-                response = state.llm.chat(messages)
+                try:
+                    response = state.llm.chat(messages)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    response = f"*{eng.character.profile.name}似乎有些出神...*（LLM 推理出错: {e}）"
             else:
                 response = f"*{eng.character.profile.name}微微一笑* 嗯，我在听呢..."
 
@@ -1099,8 +1157,30 @@ class Handler(BaseHTTPRequestHandler):
                 return
             state.engine.apply_choice(chosen)
             state.log_choice(choice_id, chosen.text, chosen.affection_delta)
+
+            # generate AI response for the choice
+            eng = state.engine
+            ctx = eng.process_player_input(f"[选择了: {chosen.text}]")
+            if state.llm:
+                from src.main import build_messages
+                sp = eng.character.format_system_prompt(
+                    scene=eng.state.current_scene.description if eng.state.current_scene else "日常"
+                )
+                messages = build_messages(ctx, sp)
+                try:
+                    response = state.llm.chat(messages)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    response = f"*{eng.character.profile.name}微微一愣...*（LLM 推理出错: {e}）"
+            else:
+                response = f"*{eng.character.profile.name}微微点头* 嗯..."
+            eng.record_assistant_response(response)
+            state.log_message("assistant", response)
+
             self._json({
                 "ok": True,
+                "response": response,
                 "affection_delta": chosen.affection_delta,
                 "new_scene": sm.current_scene.scene_id if sm.current_scene else "",
                 "scene_desc": sm.current_scene.description if sm.current_scene else "",
@@ -1211,15 +1291,82 @@ class Handler(BaseHTTPRequestHandler):
         tuner_state.message = f"基础模型已加载: {model_name}"
 
 
+# ═══════════════════════════════════════════════════════
+#  Shared LLM (loaded once at startup, shared across sessions)
+# ═══════════════════════════════════════════════════════
+_shared_llm = None
+_shared_llm_lock = threading.Lock()
+
+def _load_shared_llm():
+    """Background: load LLM from settings.yaml so new-game calls are instant."""
+    global _shared_llm
+    try:
+        from src.utils.config_loader import load_settings
+        settings = load_settings("config/settings.yaml")
+        model_path = settings.llm.model_path
+        if not Path(model_path).exists():
+            print(f"  [!] 模型路径不存在: {model_path}，跳过预加载")
+            return
+        from src.models.llm_engine import LLMEngine
+        print(f"  [*] 后台加载 LLM: {model_path} ...", flush=True)
+        llm = LLMEngine(model_path=model_path)
+        print(f"  [·] LLMEngine 构造完成，设置共享引用...", flush=True)
+        with _shared_llm_lock:
+            _shared_llm = llm
+        print(f"  [+] LLM 已就绪，可处理聊天请求", flush=True)
+    except Exception as e:
+        print(f"  [!] LLM 加载失败: {e}")
+
+# ═══════════════════════════════════════════════════════
+#  Main entry
+# ═══════════════════════════════════════════════════════
+
+def _pre_init_engine():
+    """在主线程预初始化游戏引擎，避免 HTTP handler 线程 CUDA 崩溃."""
+    from src.core.story_engine import StoryEngine
+    from src.core.state_machine import StoryStateMachine
+    from src.core.memory_system import MemorySystem
+    from src.core.character import Character
+    from src.utils.json_storage import JSONStorage
+    from src.utils.scene_loader import load_scenes
+    from src.utils.config_loader import StoryConfig
+    global _pre_built_engine
+    try:
+        char = Character.from_yaml("config/characters/default.yaml")
+        memory = MemorySystem(embedding_model="BAAI/bge-small-zh-v1.5",
+                              vector_db_path="data/memories/chroma")
+        sm = StoryStateMachine()
+        storage = JSONStorage("data/saves")
+        engine = StoryEngine(character=char, memory_system=memory,
+                             state_machine=sm, story_config=StoryConfig(),
+                             storage=storage)
+        scenes = load_scenes("config/scenes/chapter1.yaml")
+        engine.init_scenes(scenes)
+        _pre_built_engine = engine
+        print("  [+] 游戏引擎预初始化完成", flush=True)
+    except Exception as e:
+        print(f"  [!] 预初始化失败（将回退到按需初始化）: {e}", flush=True)
+        _pre_built_engine = None
+
+_pre_built_engine = None
+
 def main():
-    import signal
-    import io
+    # 防止 CUDA 异步操作在多线程中竞态崩溃
+    os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
+
     # Fix emoji encoding on Windows
     if sys.platform == "win32":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
+    # Pre-load LLM synchronously (daemon thread causes CUDA crashes on Windows)
+    _load_shared_llm()
+
+    # 预初始化游戏引擎（主线安全，避免 HTTP 线程调用 init_engine 时 CUDA 崩溃）
+    print("  [*] 预初始化游戏引擎...", flush=True)
+    _pre_init_engine()
+
     port = 8765
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    server = HTTPServer(("0.0.0.0", port), Handler)
     banner = (
         f"\n  [*] NeuralEditor API Server v0.2\n"
         f"  ----------------------------------------\n"
