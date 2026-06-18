@@ -1,6 +1,6 @@
-客户端直连: https://family-finally-clients-modelling.trycloudflare.com/client?api_key=ne_8c88df9e1db1d57ad48c5a4a000232e1414bf0dedd046d8d
-管理后台: https://family-finally-clients-modelling.trycloudflare.com/admin
+客户端直连: https://invention-numeric-facing-golf.trycloudflare.com/client?api_key=ne_709979b2db3c6e4887d29b9ae84b0992de784cf4e8f85cbd
+管理后台: https://invention-numeric-facing-golf.trycloudflare.com/admin
 Admin密码: admin123
-角色扮演: https://family-finally-clients-modelling.trycloudflare.com/romance
-微调端: https://family-finally-clients-modelling.trycloudflare.com/
-API Key: ne_8c88df9e1db1d57ad48c5a4a000232e1414bf0dedd046d8d
+角色扮演: https://invention-numeric-facing-golf.trycloudflare.com/romance
+微调端: https://invention-numeric-facing-golf.trycloudflare.com/
+API Key: ne_709979b2db3c6e4887d29b9ae84b0992de784cf4e8f85cbd
