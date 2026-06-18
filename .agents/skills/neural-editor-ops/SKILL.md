@@ -104,3 +104,32 @@ API Key: <key>
 - ❌ 用 `Invoke-WebRequest` 测试 HTML 页面 — 会超时，用 `Invoke-RestMethod`
 - ❌ 多行 PowerShell 命令 — 被拦截，拆成单行或用 `;`
 - ❌ 在非 NeuralEditor cwd 下生成 API Key — 会存到错路径
+
+---
+
+## 2026-06-18 任务复盘
+
+### 今日完成
+
+| # | 任务 | 结果 |
+|---|------|------|
+| 1 | 启动本地 LLM 服务器 (Qwen2.5-7B, RTX 4070) | ✅ 5.2GB VRAM |
+| 2 | 修复 server.py 缺 import (io, signal) | ✅ |
+| 3 | 修复多线程 CUDA 崩溃 (推理锁 + CUDA_LAUNCH_BLOCKING) | ✅ 4-7min→~10min |
+| 4 | 部署 Cloudflare 公网隧道 | ✅ trycloudflare |
+| 5 | 修复 romance.html Unknown Error (api() try/catch) | ✅ |
+| 6 | 角色-模型绑定 (YAML model_path) | ✅ |
+| 7 | 新增角色列表 API (/api/romance/characters) | ✅ |
+| 8 | 建立运维 skill v1→v6 进化体系 | ✅ |
+| 9 | 建立访问链接.txt 自动同步规则 | ✅ |
+| 10 | 推送完整代码到 GitHub (FauReam/NeuralEditor) | ✅ |
+| 11 | 验证 skill v6 六步启动流程一次性通过 | ✅ |
+
+### 验证有效的启动流程
+
+```
+杀进程 → python -c 启动 → 等20s health → cloudflared 隧道 → 签发Key → 公网验证 → 更新访问链接.txt
+```
+六步总耗时约 60 秒，首次公网可能 530，10 秒重试即通。
+
+### 下次启动只需照做 skill 中的六步命令，不改任何代码。
